@@ -1,0 +1,11 @@
+package cn.edu.nju.software.backendarm.arminstruction;
+
+import cn.edu.nju.software.backendarm.arminstruction.operand.ArmOperand;
+import cn.edu.nju.software.backendarm.arminstruction.util.ArmOpcode;
+
+public class ArmVmul_f32 extends ArmDefaultInstruction {
+
+    public ArmVmul_f32(ArmOperand... armOperands) {
+        super(ArmOpcode.VMUL_F32, armOperands);
+    }
+}
