@@ -1,0 +1,25 @@
+// Array sum calculation test
+// TEST_CONFIG: target=arm,riscv; optimization=O0,O1,O2
+
+int main() {
+    // Initialize array with values
+    int arr[10];
+    int i = 0;
+    int sum = 0;
+    
+    // Initialize array values
+    while (i < 10) {
+        arr[i] = i + 1;  // Values 1 through 10
+        i = i + 1;
+    }
+    
+    // Sum array elements
+    i = 0;
+    while (i < 10) {
+        sum = sum + arr[i];
+        i = i + 1;
+    }
+    
+    // Sum should be 55 (1+2+3+...+10)
+    return sum;
+} 

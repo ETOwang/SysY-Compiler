@@ -1,0 +1,19 @@
+{
+    "compiler_jar": "D:\\SysY-Compiler\\target\\compiler-1.0-SNAPSHOT-jar-with-dependencies.jar",
+    "targets": [
+        "arm",
+        "riscv"
+    ],
+    "optimizations": [
+        "O0",
+        "O1",
+        "O2"
+    ],
+    "timeout": 30,
+    "paths": {
+        "arm_cc": "arm-linux-gnueabihf-gcc.exe",
+        "riscv_cc": "riscv64-unknown-elf-gcc.exe",
+        "qemu_arm": "qemu-arm.exe",
+        "qemu_riscv": "qemu-riscv64.exe"
+    }
+}

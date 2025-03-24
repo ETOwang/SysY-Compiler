@@ -1,0 +1,19 @@
+// Factorial calculation test
+// TEST_CONFIG: target=arm,riscv; optimization=O0,O1,O2
+
+// Function to calculate factorial
+int factorial(int n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+int main() {
+    int result = factorial(5);  // Should be 120
+    
+    // In a real system, we would print the result
+    // but SysY doesn't have built-in I/O
+    // Result will be returned as exit code
+    return result;
+} 

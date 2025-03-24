@@ -1,0 +1,30 @@
+// Strength reduction optimization test
+// TEST_CONFIG: target=arm,riscv; optimization=O0,O1,O2
+
+int main() {
+    int result = 0;
+    int i;
+    
+    // Multiplication by powers of 2 should be optimized to shifts
+    i = 4 * 8;      // Should be optimized to i = 4 << 3
+    result = result + i;
+    
+    // Division by powers of 2 should be optimized to shifts
+    i = 128 / 16;   // Should be optimized to i = 128 >> 4
+    result = result + i;
+    
+    // Multiplication by 0 should be optimized
+    i = 100 * 0;    // Should be optimized to i = 0
+    result = result + i;
+    
+    // Multiplication by 1 should be optimized away
+    i = 25 * 1;     // Should be optimized to i = 25
+    result = result + i;
+    
+    // Division by 1 should be optimized away
+    i = 10 / 1;     // Should be optimized to i = 10
+    result = result + i;
+    
+    // The total should be 32 + 8 + 0 + 25 + 10 = 75
+    return result;
+} 
