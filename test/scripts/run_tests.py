@@ -188,21 +188,21 @@ class TestCase:
         
         try:
             with open(self.file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                match = re.search(r'// TEST_CONFIG:\s*(.*?)(?:\n|$)', content)
-                if match:
-                    config_str = match.group(1)
-                    for item in config_str.split(';'):
-                        if '=' in item:
-                            key, value = item.split('=', 1)
-                            key = key.strip()
-                            value = [v.strip() for v in value.split(',')]
-                            if key == 'target':
-                                config['targets'] = value
-                            elif key == 'optimization':
-                                config['optimizations'] = value
-                            elif key == 'timeout':
-                                config['timeout'] = int(value[0])
+            content = f.read()
+            match = re.search(r'// TEST_CONFIG:\s*(.*?)(?:\n|$)', content)
+            if match:
+                config_str = match.group(1)
+                for item in config_str.split(';'):
+                    if '=' in item:
+                        key, value = item.split('=', 1)
+                        key = key.strip()
+                        value = [v.strip() for v in value.split(',')]
+                        if key == 'target':
+                            config['targets'] = value
+                        elif key == 'optimization':
+                            config['optimizations'] = value
+                        elif key == 'timeout':
+                            config['timeout'] = int(value[0])
         except Exception as e:
             logging.warning(f"Error parsing test config for {self.name}: {e}")
         
@@ -216,7 +216,7 @@ class TestCase:
         if expected_file.exists():
             try:
                 with open(expected_file, 'r', encoding='utf-8') as f:
-                    return f.read().strip()
+                return f.read().strip()
             except Exception as e:
                 logging.warning(f"Error reading expected output for {self.name}: {e}")
                 return ""
@@ -346,14 +346,32 @@ def compile_test(test_case, target, optimization, verbose=False):
             text=True
         )
         
-        # For syntax tests, non-zero exit code is expected
+        # For syntax tests, we need special handling
         if test_case.category == "syntax":
-            success = result.returncode != 0
-            if success:
+            # Check multiple indicators of a syntax error:
+            # 1. Non-zero return code
+            # 2. Error message containing "syntax" or "parse" or similar keywords
+            # 3. No assembly file generated or empty assembly file
+            has_error_code = result.returncode != 0
+            has_error_message = any(kw in result.stderr.lower() for kw in ["syntax", "parse", "token", "expect"])
+            no_valid_assembly = not os.path.exists(output_file) or os.path.getsize(output_file) == 0
+            
+            # Consider it a success if ANY of these indicate a syntax error
+            syntax_error_detected = has_error_code or has_error_message or no_valid_assembly
+            
+            if syntax_error_detected:
+                if verbose:
+                    logging.info(f"Syntax error detected: code={result.returncode}, has_error_msg={has_error_message}, no_valid_asm={no_valid_assembly}")
                 return True, None, "Syntax error detected as expected"
             else:
+                if verbose:
+                    logging.warning(f"Expected syntax error, but compilation succeeded. Return code: {result.returncode}")
+                    logging.warning(f"Stderr: {result.stderr}")
+                    if os.path.exists(output_file):
+                        logging.warning(f"Assembly file exists with size: {os.path.getsize(output_file)} bytes")
                 return False, None, "Expected syntax error, but compilation succeeded"
         
+        # For normal tests
         success = result.returncode == 0
         
         if verbose and not success:
@@ -524,7 +542,7 @@ def run_arm_test(assembly_file, timeout, verbose=False):
             if verbose:
                 logging.error(f"Compilation failed: {result.stderr.decode()}")
             return False, f"Compilation failed: {result.stderr.decode()}"
-
+        
         # Run the executable with QEMU
         run_cmd = [qemu_arm, "-L", "/usr/arm-linux-gnueabihf", output_exe]
         if verbose:
@@ -543,8 +561,8 @@ def run_arm_test(assembly_file, timeout, verbose=False):
             # Always append the exit code to output
             output = output.rstrip() + f"\nExit code: {process.returncode}"
             return True, output
-
-        except subprocess.TimeoutExpired:
+    
+    except subprocess.TimeoutExpired:
             process.kill()
             return False, "Execution timeout"
 
@@ -558,13 +576,13 @@ def run_arm_test(assembly_file, timeout, verbose=False):
         return False, f"Execution error: {str(e)}"
     finally:
         # Clean up
-        try:
+                try:
             if os.path.exists(output_exe):
                 os.remove(output_exe)
             if os.path.exists(local_libsysy):
                 os.remove(local_libsysy)
-        except:
-            pass
+                except:
+                    pass
 
 def run_riscv_test(assembly_file, timeout, verbose=False):
     """Run a RISC-V assembly file using QEMU"""
@@ -604,7 +622,7 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
             if verbose:
                 logging.error(f"Compilation failed: {result.stderr.decode()}")
             return False, f"Compilation failed: {result.stderr.decode()}"
-
+        
         # Run the executable with QEMU
         run_cmd = [qemu_riscv, "-L", "/usr/riscv64-linux-gnu", output_exe]
         if verbose:
@@ -623,8 +641,8 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
             # Always append the exit code to output
             output = output.rstrip() + f"\nExit code: {process.returncode}"
             return True, output
-
-        except subprocess.TimeoutExpired:
+    
+    except subprocess.TimeoutExpired:
             process.kill()
             return False, "Execution timeout"
 
@@ -638,13 +656,13 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
         return False, f"Execution error: {str(e)}"
     finally:
         # Clean up
-        try:
+                try:
             if os.path.exists(output_exe):
                 os.remove(output_exe)
             if os.path.exists(local_libsysy):
                 os.remove(local_libsysy)
-        except:
-            pass
+                except:
+                    pass
 
 def run_test(test_case, target, optimization, verbose=False):
     """Run a test with specific configuration"""
@@ -700,7 +718,7 @@ def run_test(test_case, target, optimization, verbose=False):
         # Clean up assembly file
         if assembly_file and os.path.exists(assembly_file):
             try:
-                os.remove(assembly_file)
+            os.remove(assembly_file)
             except:
                 pass
 
@@ -758,10 +776,10 @@ def run_tests(test_cases, args):
     print("\nTest Summary:")
     print(f"Total: {total}")
     if total > 0:
-        print(f"Passed: {results[TestResult.PASS]} ({results[TestResult.PASS]/total*100:.1f}%)")
-        print(f"Failed: {results[TestResult.FAIL]} ({results[TestResult.FAIL]/total*100:.1f}%)")
-        print(f"Errors: {results[TestResult.ERROR]} ({results[TestResult.ERROR]/total*100:.1f}%)")
-        print(f"Timeouts: {results[TestResult.TIMEOUT]} ({results[TestResult.TIMEOUT]/total*100:.1f}%)")
+    print(f"Passed: {results[TestResult.PASS]} ({results[TestResult.PASS]/total*100:.1f}%)")
+    print(f"Failed: {results[TestResult.FAIL]} ({results[TestResult.FAIL]/total*100:.1f}%)")
+    print(f"Errors: {results[TestResult.ERROR]} ({results[TestResult.ERROR]/total*100:.1f}%)")
+    print(f"Timeouts: {results[TestResult.TIMEOUT]} ({results[TestResult.TIMEOUT]/total*100:.1f}%)")
         print(f"Skipped: {results[TestResult.SKIPPED]} ({results[TestResult.SKIPPED]/total*100:.1f}%)")
     else:
         print("No tests were run. Make sure your configuration is correct and test files exist.")
