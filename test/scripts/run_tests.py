@@ -386,11 +386,58 @@ def get_target_libsysy(target, verbose=False):
                          stderr=subprocess.PIPE if not verbose else None,
                          check=True)
             
-            # Build the target-specific library
-            subprocess.run(["make", "-C", lib_dir, target], 
-                         stdout=subprocess.PIPE if not verbose else None,
-                         stderr=subprocess.PIPE if not verbose else None,
-                         check=True)
+            # Choose the appropriate compiler based on target and config
+            if target == "arm":
+                compiler = CONFIG["paths"]["arm_cc"]
+            elif target == "riscv":
+                compiler = CONFIG["paths"]["riscv_cc"]
+            else:
+                if verbose:
+                    logging.error(f"Unknown target: {target}")
+                return None
+                
+            if verbose:
+                logging.info(f"Using compiler: {compiler} for {target}")
+            
+            # Create a temporary Makefile that uses the detected compiler
+            temp_makefile = os.path.join(lib_dir, "Makefile.temp")
+            with open(temp_makefile, 'w') as f:
+                if target == "arm":
+                    f.write(f"CC = {compiler}\n")
+                    f.write("TARGET = libsysy.a\n")
+                    f.write("CFLAGS = -Wall -O2\n")
+                    f.write("SRC = sylib.c\n")
+                    f.write("OBJ = sylib.o\n\n")
+                    f.write("all: $(TARGET)\n\n")
+                    f.write("$(TARGET): $(OBJ)\n")
+                    f.write("\tar rcs $(TARGET) $(OBJ)\n\n")
+                    f.write("%.o: %.c\n")
+                    f.write("\t$(CC) $(CFLAGS) -c $< -o $@\n\n")
+                    f.write("clean:\n")
+                    f.write("\trm -f *.o $(TARGET)\n")
+                elif target == "riscv":
+                    f.write(f"CC = {compiler}\n")
+                    f.write("TARGET = libsysy.a\n")
+                    f.write("CFLAGS = -Wall -O2\n")
+                    f.write("SRC = sylib.c\n")
+                    f.write("OBJ = sylib.o\n\n")
+                    f.write("all: $(TARGET)\n\n")
+                    f.write("$(TARGET): $(OBJ)\n")
+                    f.write("\tar rcs $(TARGET) $(OBJ)\n\n")
+                    f.write("%.o: %.c\n")
+                    f.write("\t$(CC) $(CFLAGS) -c $< -o $@\n\n")
+                    f.write("clean:\n")
+                    f.write("\trm -f *.o $(TARGET)\n")
+            
+            # Build using our temporary Makefile
+            build_cmd = ["make", "-C", lib_dir, "-f", "Makefile.temp"]
+            if verbose:
+                logging.info(f"Building with command: {' '.join(build_cmd)}")
+                
+            result = subprocess.run(build_cmd, 
+                                  stdout=subprocess.PIPE if not verbose else None,
+                                  stderr=subprocess.PIPE if not verbose else None,
+                                  check=True)
             
             # If the build succeeded, the library should exist at the default path
             if os.path.exists(default_libsysy):
@@ -398,6 +445,12 @@ def get_target_libsysy(target, verbose=False):
                 shutil.copy2(default_libsysy, libsysy_path)
                 if verbose:
                     logging.info(f"Successfully built and copied {target} library to {libsysy_path}")
+                
+                # Clean up
+                try:
+                    os.remove(temp_makefile)
+                except:
+                    pass
             else:
                 if verbose:
                     logging.error(f"Build succeeded but library not found at {default_libsysy}")
