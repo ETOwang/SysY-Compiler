@@ -370,96 +370,58 @@ def compile_test(test_case, target, optimization, verbose=False):
         return False, None, f"Compilation error: {str(e)}"
 
 def run_arm_test(assembly_file, timeout, verbose=False):
-    """Run a compiled ARM assembly file using QEMU and collect output"""
-    arm_cc = CONFIG["paths"]["arm_cc"]
-    qemu_arm = CONFIG["paths"]["qemu_arm"]
-    
-    # 检查ARM编译器是否可用
-    if not os.path.exists(arm_cc) and not shutil.which(arm_cc):
-        error_msg = f"ARM compiler not found: {arm_cc}"
-        if verbose:
-            logging.error(error_msg)
-        return False, error_msg
-    
-    # 检查QEMU是否可用
-    if not os.path.exists(qemu_arm) and not shutil.which(qemu_arm):
-        error_msg = f"QEMU for ARM not found: {qemu_arm}"
-        if verbose:
-            logging.error(error_msg)
-        return False, error_msg
-    
-    # Create a C wrapper to call our assembly
-    wrapper_c = tempfile.mktemp(suffix=".c")
-    with open(wrapper_c, 'w') as f:
-        f.write("""
-#include <stdio.h>
-#include <stdlib.h>
-
-/* 声明汇编中的main函数 */
-int sysy_main() __asm__("main");
-
-/* 主函数 */
-int main(void) {
-    int result;
-    /* 捕获汇编main函数的返回值 */
-    result = sysy_main();
-    /* 确保输出被刷新 */
-    fflush(stdout);
-    /* 在所有输出之后打印返回码 */
-    printf("\\nExit code: %d\\n", result);
-    fflush(stdout);
-    return result;
-}
-""")
-    
-    output_exe = tempfile.mktemp(suffix=EXE_EXT)
-    
+    """Run an ARM assembly file using QEMU"""
     try:
-        # Copy sylib.h to temp location for compilation
-        temp_sylib_h = os.path.join(os.path.dirname(wrapper_c), "sylib.h")
-        shutil.copyfile(str(SYLIB_H), temp_sylib_h)
-        
-        # Compile with wrapper and link with libsysy.a
-        compile_cmd = [arm_cc, "-static", "-O0", wrapper_c, assembly_file, str(LIBSYSY_A), "-o", output_exe, 
-                      "-I", os.path.dirname(temp_sylib_h), "-Wl,--allow-multiple-definition"]
+        # Get paths from config
+        config = load_config()
+        arm_cc = config["paths"]["arm_cc"]
+        qemu_arm = config["paths"]["qemu_arm"]
+
+        # Create output executable name
+        output_exe = assembly_file.replace(".s", "")
+        if os.name == "nt":  # Windows
+            output_exe += ".exe"
+
+        # Copy libsysy.a to current directory if it doesn't exist
+        lib_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(assembly_file))), "lib")
+        libsysy_path = os.path.join(lib_dir, "libsysy.a")
+        local_libsysy = os.path.join(os.path.dirname(assembly_file), "libsysy.a")
+        if not os.path.exists(local_libsysy):
+            shutil.copy2(libsysy_path, local_libsysy)
+
+        # Compile assembly to executable, linking with libsysy.a
+        compile_cmd = [arm_cc, "-static", assembly_file, "-L.", "-lsysy", "-o", output_exe]
         if verbose:
-            logging.info(f"Executing: {' '.join(compile_cmd)}")
+            logging.info(f"Compiling with command: {' '.join(compile_cmd)}")
         
-        compile_result = subprocess.run(
-            compile_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-            text=True
-        )
-        
-        if compile_result.returncode != 0:
+        result = subprocess.run(compile_cmd, cwd=os.path.dirname(assembly_file), 
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0:
             if verbose:
-                logging.error(f"GCC compilation failed: {compile_result.stderr}")
-            return False, "GCC compilation failed: " + compile_result.stderr
-        
-        # Run with QEMU
-        run_cmd = [qemu_arm, output_exe]
+                logging.error(f"Compilation failed: {result.stderr.decode()}")
+            return False, f"Compilation failed: {result.stderr.decode()}"
+
+        # Run the executable with QEMU
+        run_cmd = [qemu_arm, "-L", "/usr/arm-linux-gnueabihf", output_exe]
         if verbose:
-            logging.info(f"Executing: {' '.join(run_cmd)}")
+            logging.info(f"Running with command: {' '.join(run_cmd)}")
+
+        process = subprocess.Popen(run_cmd, cwd=os.path.dirname(assembly_file),
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
-        run_result = subprocess.run(
-            run_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-            text=True
-        )
-        
-        if run_result.returncode != 0 and verbose:
-            logging.error(f"QEMU execution failed: {run_result.stderr}")
-        
-        return True, run_result.stdout.strip()
-    
-    except subprocess.TimeoutExpired:
-        if verbose:
-            logging.warning(f"Execution timeout after {timeout} seconds")
-        return False, "Execution timeout"
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            output = stdout.decode()
+            if process.returncode != 0:
+                if verbose:
+                    logging.error(f"Execution failed with return code {process.returncode}")
+                    logging.error(f"stderr: {stderr.decode()}")
+                return False, f"Execution failed with return code {process.returncode}"
+            return True, output
+        except subprocess.TimeoutExpired:
+            process.kill()
+            return False, "Execution timeout"
+
     except FileNotFoundError as e:
         if verbose:
             logging.error(f"Command not found: {e}")
@@ -470,104 +432,67 @@ int main(void) {
         return False, f"Execution error: {str(e)}"
     finally:
         # Clean up
-        for temp_file in [wrapper_c, output_exe, temp_sylib_h]:
-            if os.path.exists(temp_file):
-                try:
-                    os.remove(temp_file)
-                except:
-                    pass
+        try:
+            if os.path.exists(output_exe):
+                os.remove(output_exe)
+            if os.path.exists(local_libsysy):
+                os.remove(local_libsysy)
+        except:
+            pass
 
 def run_riscv_test(assembly_file, timeout, verbose=False):
-    """Run a compiled RISC-V assembly file using QEMU and collect output"""
-    riscv_cc = CONFIG["paths"]["riscv_cc"]
-    qemu_riscv = CONFIG["paths"]["qemu_riscv"]
-    
-    # 检查RISC-V编译器是否可用
-    if not os.path.exists(riscv_cc) and not shutil.which(riscv_cc):
-        error_msg = f"RISC-V compiler not found: {riscv_cc}"
-        if verbose:
-            logging.error(error_msg)
-        return False, error_msg
-    
-    # 检查QEMU是否可用
-    if not os.path.exists(qemu_riscv) and not shutil.which(qemu_riscv):
-        error_msg = f"QEMU for RISC-V not found: {qemu_riscv}"
-        if verbose:
-            logging.error(error_msg)
-        return False, error_msg
-    
-    # Create a C wrapper to call our assembly
-    wrapper_c = tempfile.mktemp(suffix=".c")
-    with open(wrapper_c, 'w') as f:
-        f.write("""
-#include <stdio.h>
-#include <stdlib.h>
-
-/* 声明汇编中的main函数 */
-int sysy_main() __asm__("main");
-
-/* 主函数 */
-int main(void) {
-    int result;
-    /* 捕获汇编main函数的返回值 */
-    result = sysy_main();
-    /* 确保输出被刷新 */
-    fflush(stdout);
-    /* 在所有输出之后打印返回码 */
-    printf("\\nExit code: %d\\n", result);
-    fflush(stdout);
-    return result;
-}
-""")
-    
-    output_exe = tempfile.mktemp(suffix=EXE_EXT)
-    
+    """Run a RISC-V assembly file using QEMU"""
     try:
-        # Copy sylib.h to temp location for compilation
-        temp_sylib_h = os.path.join(os.path.dirname(wrapper_c), "sylib.h")
-        shutil.copyfile(str(SYLIB_H), temp_sylib_h)
-        
-        # Compile with wrapper and link with libsysy.a
-        compile_cmd = [riscv_cc, "-static", "-O0", wrapper_c, assembly_file, str(LIBSYSY_A), "-o", output_exe, 
-                      "-I", os.path.dirname(temp_sylib_h), "-Wl,--allow-multiple-definition"]
+        # Get paths from config
+        config = load_config()
+        riscv_cc = config["paths"]["riscv_cc"]
+        qemu_riscv = config["paths"]["qemu_riscv"]
+
+        # Create output executable name
+        output_exe = assembly_file.replace(".s", "")
+        if os.name == "nt":  # Windows
+            output_exe += ".exe"
+
+        # Copy libsysy.a to current directory if it doesn't exist
+        lib_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(assembly_file))), "lib")
+        libsysy_path = os.path.join(lib_dir, "libsysy.a")
+        local_libsysy = os.path.join(os.path.dirname(assembly_file), "libsysy.a")
+        if not os.path.exists(local_libsysy):
+            shutil.copy2(libsysy_path, local_libsysy)
+
+        # Compile assembly to executable, linking with libsysy.a
+        compile_cmd = [riscv_cc, "-static", assembly_file, "-L.", "-lsysy", "-o", output_exe]
         if verbose:
-            logging.info(f"Executing: {' '.join(compile_cmd)}")
+            logging.info(f"Compiling with command: {' '.join(compile_cmd)}")
         
-        compile_result = subprocess.run(
-            compile_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-            text=True
-        )
-        
-        if compile_result.returncode != 0:
+        result = subprocess.run(compile_cmd, cwd=os.path.dirname(assembly_file), 
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0:
             if verbose:
-                logging.error(f"GCC compilation failed: {compile_result.stderr}")
-            return False, "GCC compilation failed: " + compile_result.stderr
-        
-        # Run with QEMU
-        run_cmd = [qemu_riscv, output_exe]
+                logging.error(f"Compilation failed: {result.stderr.decode()}")
+            return False, f"Compilation failed: {result.stderr.decode()}"
+
+        # Run the executable with QEMU
+        run_cmd = [qemu_riscv, "-L", "/usr/riscv64-linux-gnu", output_exe]
         if verbose:
-            logging.info(f"Executing: {' '.join(run_cmd)}")
+            logging.info(f"Running with command: {' '.join(run_cmd)}")
+
+        process = subprocess.Popen(run_cmd, cwd=os.path.dirname(assembly_file),
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
-        run_result = subprocess.run(
-            run_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-            text=True
-        )
-        
-        if run_result.returncode != 0 and verbose:
-            logging.error(f"QEMU execution failed: {run_result.stderr}")
-        
-        return True, run_result.stdout.strip()
-    
-    except subprocess.TimeoutExpired:
-        if verbose:
-            logging.warning(f"Execution timeout after {timeout} seconds")
-        return False, "Execution timeout"
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            output = stdout.decode()
+            if process.returncode != 0:
+                if verbose:
+                    logging.error(f"Execution failed with return code {process.returncode}")
+                    logging.error(f"stderr: {stderr.decode()}")
+                return False, f"Execution failed with return code {process.returncode}"
+            return True, output
+        except subprocess.TimeoutExpired:
+            process.kill()
+            return False, "Execution timeout"
+
     except FileNotFoundError as e:
         if verbose:
             logging.error(f"Command not found: {e}")
@@ -578,12 +503,13 @@ int main(void) {
         return False, f"Execution error: {str(e)}"
     finally:
         # Clean up
-        for temp_file in [wrapper_c, output_exe, temp_sylib_h]:
-            if os.path.exists(temp_file):
-                try:
-                    os.remove(temp_file)
-                except:
-                    pass
+        try:
+            if os.path.exists(output_exe):
+                os.remove(output_exe)
+            if os.path.exists(local_libsysy):
+                os.remove(local_libsysy)
+        except:
+            pass
 
 def run_test(test_case, target, optimization, verbose=False):
     """Run a test with specific configuration"""
@@ -615,26 +541,23 @@ def run_test(test_case, target, optimization, verbose=False):
         if not success:
             return TestResult.ERROR, output, None
         
-        # Extract exit code from output
-        exit_code_match = re.search(r'Exit code: (\d+)', output)
-        if not exit_code_match:
-            return TestResult.FAIL, "No exit code found in output", output
-        
-        # Remove exit code from output for comparison
-        actual_output = output.replace(exit_code_match.group(0), '').strip()
-        
         # Compare with expected output
         if test_case.expected_output:
             expected_parts = test_case.expected_output.split('Exit code:', 1)
             expected_output = expected_parts[0].strip()
-            if len(expected_parts) > 1:
-                expected_exit = expected_parts[1].strip()
-                if expected_exit != exit_code_match.group(1):
-                    return TestResult.FAIL, f"Exit code mismatch. Expected: {expected_exit}, Got: {exit_code_match.group(1)}", output
+            
+            # Extract actual output and exit code from the process output
+            actual_output = output.strip()
             
             if expected_output and expected_output not in actual_output:
                 diff_message = f"Output mismatch.\nExpected: '{expected_output}'\nActual: '{actual_output}'"
                 return TestResult.FAIL, diff_message, output
+            
+            # Check exit code if specified in expected output
+            if len(expected_parts) > 1:
+                expected_exit = expected_parts[1].strip()
+                if not actual_output.endswith(f"Exit code: {expected_exit}"):
+                    return TestResult.FAIL, f"Exit code mismatch. Expected: {expected_exit}, Got: {actual_output}", output
         
         return TestResult.PASS, "Test passed", output
     
