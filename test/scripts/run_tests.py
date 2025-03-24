@@ -55,7 +55,7 @@ EXE_EXT = ".exe" if IS_WINDOWS else ""
 
 # Default configuration
 DEFAULT_CONFIG = {
-    "compiler_jar": str(DEFAULT_COMPILER_JAR),
+    "compiler_jar": str(DEFAULT_COMPILER_JAR).replace('\\', '/'),
     "targets": ["arm", "riscv"],
     "optimizations": ["O0", "O1", "O2"],
     "timeout": 30,
@@ -79,13 +79,25 @@ def load_config():
             with open(CONFIG_FILE, 'r') as f:
                 config = json.load(f)
                 logging.info(f"Loaded configuration from {CONFIG_FILE}")
+                
+                if "compiler_jar" in config:
+                    current_os_path = str(DEFAULT_COMPILER_JAR).replace('\\', '/')
+                    if (IS_WINDOWS and '/' in config["compiler_jar"] and not '\\' in config["compiler_jar"]) or \
+                       (not IS_WINDOWS and '\\' in config["compiler_jar"]):
+                        logging.warning(f"Detected mismatched path format in config. Updating compiler_jar path.")
+                        config["compiler_jar"] = current_os_path
         except Exception as e:
             logging.warning(f"Failed to load config file: {e}")
     
     if config is None:
         config = DEFAULT_CONFIG.copy()
     
-    # Auto-detect RISC-V toolchain if not set correctly
+    if "compiler_jar" in config:
+        if IS_WINDOWS:
+            config["compiler_jar"] = config["compiler_jar"].replace('/', '\\')
+        else:
+            config["compiler_jar"] = config["compiler_jar"].replace('\\', '/')
+    
     if not os.path.exists(config["paths"]["riscv_cc"]) and not shutil.which(config["paths"]["riscv_cc"]):
         logging.info("RISC-V toolchain not found, attempting auto-detection")
         riscv_gcc_names = [
@@ -98,7 +110,6 @@ def load_config():
             "riscv64-unknown-linux-gnu-gcc"
         ]
         
-        # Try to find RISC-V toolchain in PATH
         for gcc_name in riscv_gcc_names:
             gcc_path = shutil.which(gcc_name)
             if gcc_path:
@@ -106,7 +117,6 @@ def load_config():
                 logging.info(f"Found RISC-V toolchain: {gcc_name}")
                 break
     
-    # Write updated configuration
     try:
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=4)
@@ -208,11 +218,44 @@ def collect_test_cases(args):
 
 def check_compiler_jar(compiler_jar):
     """Check if the compiler JAR exists and is valid"""
-    if not os.path.exists(compiler_jar):
-        logging.error(f"Compiler JAR not found: {compiler_jar}")
-        logging.error("Please build the compiler or update the config.json with the correct path")
-        return False
-    return True
+    # 尝试不同路径格式，以处理跨平台问题
+    paths_to_check = [
+        compiler_jar,
+        compiler_jar.replace('\\', '/'),
+        compiler_jar.replace('/', '\\')
+    ]
+    
+    for path in paths_to_check:
+        if os.path.exists(path):
+            if path != compiler_jar:
+                logging.warning(f"Found compiler at alternative path: {path}")
+                # 更新配置中的路径
+                CONFIG["compiler_jar"] = path
+                try:
+                    with open(CONFIG_FILE, 'w') as f:
+                        json.dump(CONFIG, f, indent=4)
+                    logging.info(f"Updated compiler_jar path in configuration")
+                except Exception as e:
+                    logging.warning(f"Failed to update config file: {e}")
+            return True
+    
+    # 尝试在当前目录结构中查找
+    alternative_path = str(PROJECT_ROOT / "target" / "compiler-1.0-SNAPSHOT-jar-with-dependencies.jar")
+    if os.path.exists(alternative_path):
+        logging.info(f"Found compiler at alternative path: {alternative_path}")
+        CONFIG["compiler_jar"] = alternative_path
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(CONFIG, f, indent=4)
+            logging.info(f"Updated compiler_jar path in configuration")
+        except Exception as e:
+            logging.warning(f"Failed to update config file: {e}")
+        return True
+    
+    logging.error(f"Compiler JAR not found: {compiler_jar}")
+    logging.error("Please build the compiler or update the config.json with the correct path")
+    logging.error(f"Expected location: {PROJECT_ROOT}/target/compiler-1.0-SNAPSHOT-jar-with-dependencies.jar")
+    return False
 
 def check_cross_compiler(compiler_name, compiler_path):
     """Check if a cross-compiler is available"""
@@ -573,6 +616,21 @@ def main():
     
     if args.update_config:
         config = DEFAULT_CONFIG.copy()
+        
+        # 确保compiler_jar使用当前系统格式的路径
+        if IS_WINDOWS:
+            config["compiler_jar"] = str(DEFAULT_COMPILER_JAR).replace('/', '\\')
+        else:
+            config["compiler_jar"] = str(DEFAULT_COMPILER_JAR).replace('\\', '/')
+        
+        # 修改为当前系统上的实际路径
+        actual_jar_path = str(PROJECT_ROOT / "target" / "compiler-1.0-SNAPSHOT-jar-with-dependencies.jar")
+        if os.path.exists(actual_jar_path):
+            config["compiler_jar"] = actual_jar_path.replace('\\', '/')
+            print(f"Found compiler JAR at: {actual_jar_path}")
+        else:
+            print(f"Warning: Compiler JAR not found at: {actual_jar_path}")
+            print("You need to build the compiler or manually update the path in config.json")
         
         # Try to detect RISC-V toolchain
         print("Auto-detecting RISC-V toolchain...")
