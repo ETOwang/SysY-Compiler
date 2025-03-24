@@ -88,6 +88,7 @@ def load_config():
         try:
             with open(CONFIG_FILE, 'r') as f:
                 loaded_config = json.load(f)
+                if verbose:
                 logging.info(f"Loaded configuration from {CONFIG_FILE}")
                 
                 # Merge paths
