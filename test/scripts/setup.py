@@ -96,8 +96,44 @@ def check_linux_dependencies():
     if not shutil.which("arm-linux-gnueabihf-gcc"):
         missing.append("gcc-arm-linux-gnueabihf")
     
-    # Check for RISC-V toolchain
-    if not shutil.which("riscv64-unknown-elf-gcc"):
+    # Check for RISC-V toolchain with multiple possible executable names
+    riscv_gcc_found = False
+    riscv_gcc_names = [
+        "riscv64-unknown-elf-gcc",
+        "riscv64-linux-gnu-gcc",
+        "riscv64-elf-gcc",
+        "riscv-none-embed-gcc",
+        "riscv-linux-gnu-gcc",
+        "riscv-none-elf-gcc",
+        "riscv64-unknown-linux-gnu-gcc"
+    ]
+    
+    for gcc_name in riscv_gcc_names:
+        if shutil.which(gcc_name):
+            riscv_gcc_found = True
+            print(f"Found RISC-V toolchain: {gcc_name}")
+            break
+    
+    # Also check common installation directories if not found in PATH
+    if not riscv_gcc_found:
+        common_paths = [
+            "/usr/bin/",
+            "/usr/local/bin/",
+            "/opt/riscv/bin/"
+        ]
+        
+        for path in common_paths:
+            for gcc_name in riscv_gcc_names:
+                full_path = os.path.join(path, gcc_name)
+                if os.path.exists(full_path) and os.access(full_path, os.X_OK):
+                    riscv_gcc_found = True
+                    print(f"Found RISC-V toolchain: {full_path}")
+                    print(f"Note: {full_path} is not in your PATH. Consider adding it.")
+                    break
+            if riscv_gcc_found:
+                break
+    
+    if not riscv_gcc_found:
         missing.append("gcc-riscv64-unknown-elf")
     
     if missing:
@@ -107,7 +143,11 @@ def check_linux_dependencies():
         
         print("\nYou can install them with:")
         print("  sudo apt-get update")
-        print("  sudo apt-get install -y qemu-user gcc-arm-linux-gnueabihf gcc-riscv64-unknown-elf python3")
+        if "gcc-riscv64-unknown-elf" in missing:
+            print("  sudo apt-get install -y qemu-user gcc-arm-linux-gnueabihf gcc-riscv64-unknown-elf python3")
+            print("\nAlternative RISC-V toolchain installation commands:")
+            print("  sudo apt-get install -y gcc-riscv64-linux-gnu")
+            print("  # OR build from source: https://github.com/riscv/riscv-gnu-toolchain")
     else:
         print("All dependencies are installed.")
 

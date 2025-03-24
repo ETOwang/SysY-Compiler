@@ -73,24 +73,48 @@ if IS_MACOS:
 
 # Load or create configuration
 def load_config():
+    config = None
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
                 config = json.load(f)
                 logging.info(f"Loaded configuration from {CONFIG_FILE}")
-                return config
         except Exception as e:
             logging.warning(f"Failed to load config file: {e}")
-            
-    # Write default configuration
+    
+    if config is None:
+        config = DEFAULT_CONFIG.copy()
+    
+    # Auto-detect RISC-V toolchain if not set correctly
+    if not os.path.exists(config["paths"]["riscv_cc"]) and not shutil.which(config["paths"]["riscv_cc"]):
+        logging.info("RISC-V toolchain not found, attempting auto-detection")
+        riscv_gcc_names = [
+            "riscv64-unknown-elf-gcc",
+            "riscv64-linux-gnu-gcc",
+            "riscv64-elf-gcc",
+            "riscv-none-embed-gcc",
+            "riscv-linux-gnu-gcc",
+            "riscv-none-elf-gcc",
+            "riscv64-unknown-linux-gnu-gcc"
+        ]
+        
+        # Try to find RISC-V toolchain in PATH
+        for gcc_name in riscv_gcc_names:
+            gcc_path = shutil.which(gcc_name)
+            if gcc_path:
+                config["paths"]["riscv_cc"] = gcc_name
+                logging.info(f"Found RISC-V toolchain: {gcc_name}")
+                break
+    
+    # Write updated configuration
     try:
         with open(CONFIG_FILE, 'w') as f:
-            json.dump(DEFAULT_CONFIG, f, indent=4)
-            logging.info(f"Created default configuration at {CONFIG_FILE}")
+            json.dump(config, f, indent=4)
+            logging.info(f"Updated configuration at {CONFIG_FILE}")
     except Exception as e:
-        logging.warning(f"Failed to write default config: {e}")
+        logging.warning(f"Failed to write config: {e}")
     
-    return DEFAULT_CONFIG
+    return config
 
 # Load configuration
 CONFIG = load_config()
@@ -548,9 +572,38 @@ def main():
     args = parser.parse_args()
     
     if args.update_config:
+        config = DEFAULT_CONFIG.copy()
+        
+        # Try to detect RISC-V toolchain
+        print("Auto-detecting RISC-V toolchain...")
+        riscv_gcc_names = [
+            "riscv64-unknown-elf-gcc",
+            "riscv64-linux-gnu-gcc",
+            "riscv64-elf-gcc",
+            "riscv-none-embed-gcc",
+            "riscv-linux-gnu-gcc",
+            "riscv-none-elf-gcc",
+            "riscv64-unknown-linux-gnu-gcc"
+        ]
+        
+        riscv_gcc_found = False
+        for gcc_name in riscv_gcc_names:
+            gcc_path = shutil.which(gcc_name)
+            if gcc_path:
+                config["paths"]["riscv_cc"] = gcc_name
+                print(f"Found RISC-V toolchain: {gcc_name}")
+                riscv_gcc_found = True
+                break
+        
+        if not riscv_gcc_found:
+            print("Warning: RISC-V toolchain not found in PATH.")
+            print("You might need to install it with:")
+            print("  sudo apt-get install -y gcc-riscv64-unknown-elf")
+            print("Or update config.json manually with the correct path.")
+        
         with open(CONFIG_FILE, 'w') as f:
-            json.dump(DEFAULT_CONFIG, f, indent=4)
-        print(f"Configuration reset to defaults at {CONFIG_FILE}")
+            json.dump(config, f, indent=4)
+        print(f"Configuration updated at {CONFIG_FILE}")
         return
     
     test_cases = collect_test_cases(args)
