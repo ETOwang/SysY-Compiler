@@ -55,15 +55,19 @@ EXE_EXT = ".exe" if IS_WINDOWS else ""
 
 # Default configuration
 DEFAULT_CONFIG = {
-    "compiler_jar": str(DEFAULT_COMPILER_JAR).replace('\\', '/'),
-    "targets": ["arm", "riscv"],
-    "optimizations": ["O0", "O1", "O2"],
-    "timeout": 30,
     "paths": {
-        "arm_cc": "arm-linux-gnueabihf-gcc",
+        "compiler_jar": str(PROJECT_ROOT / "target" / "compiler-1.0-SNAPSHOT-jar-with-dependencies.jar"),
+        "arm_cc": "arm-linux-gnueabi-gcc",
         "riscv_cc": "riscv64-unknown-elf-gcc",
-        "qemu_arm": "qemu-arm" + EXE_EXT,
-        "qemu_riscv": "qemu-riscv64" + EXE_EXT
+        "qemu_arm": "qemu-arm",
+        "qemu_riscv": "qemu-riscv64"
+    },
+    "options": {
+        "default_timeout": 30,  # 默认超时时间（秒）
+        "default_target": "arm",  # 默认目标架构
+        "default_optimization": "O0",  # 默认优化级别
+        "targets": ["arm", "riscv"],  # 支持的目标架构
+        "optimizations": ["O0", "O1", "O2"]  # 支持的优化级别
     }
 }
 
@@ -73,6 +77,8 @@ if IS_MACOS:
 elif IS_WINDOWS:
     DEFAULT_CONFIG["paths"]["arm_cc"] += ".exe"
     DEFAULT_CONFIG["paths"]["riscv_cc"] += ".exe"
+    DEFAULT_CONFIG["paths"]["qemu_arm"] += ".exe"
+    DEFAULT_CONFIG["paths"]["qemu_riscv"] += ".exe"
 
 # Load or create configuration
 def load_config():
@@ -90,17 +96,17 @@ def load_config():
                         logging.warning(f"Detected mismatched path format in config. Updating compiler_jar path.")
                         config["compiler_jar"] = current_os_path
                 
-                # 修复ARM和RISC-V编译器路径中的.exe后缀
+                # 修复ARM、RISC-V编译器和QEMU路径中的.exe后缀
                 if IS_LINUX or IS_MACOS:
-                    for compiler_key in ["arm_cc", "riscv_cc"]:
-                        if compiler_key in config["paths"] and config["paths"][compiler_key].endswith(".exe"):
-                            config["paths"][compiler_key] = config["paths"][compiler_key][:-4]  # 去掉.exe
-                            logging.warning(f"Removed .exe suffix from {compiler_key} path")
+                    for key in ["arm_cc", "riscv_cc", "qemu_arm", "qemu_riscv"]:
+                        if key in config["paths"] and config["paths"][key].endswith(".exe"):
+                            config["paths"][key] = config["paths"][key][:-4]  # 去掉.exe
+                            logging.warning(f"Removed .exe suffix from {key} path")
                 elif IS_WINDOWS:
-                    for compiler_key in ["arm_cc", "riscv_cc"]:
-                        if compiler_key in config["paths"] and not config["paths"][compiler_key].endswith(".exe"):
-                            config["paths"][compiler_key] += ".exe"  # 添加.exe
-                            logging.warning(f"Added .exe suffix to {compiler_key} path")
+                    for key in ["arm_cc", "riscv_cc", "qemu_arm", "qemu_riscv"]:
+                        if key in config["paths"] and not config["paths"][key].endswith(".exe"):
+                            config["paths"][key] += ".exe"  # 添加.exe
+                            logging.warning(f"Added .exe suffix to {key} path")
         except Exception as e:
             logging.warning(f"Failed to load config file: {e}")
     
@@ -132,6 +138,32 @@ def load_config():
                 logging.info(f"Found RISC-V toolchain: {gcc_name}")
                 break
     
+    # 检测QEMU是否存在
+    for qemu_key, binary_names in {
+        "qemu_arm": ["qemu-arm", "qemu-system-arm"],
+        "qemu_riscv": ["qemu-riscv64", "qemu-system-riscv64"]
+    }.items():
+        if not os.path.exists(config["paths"][qemu_key]) and not shutil.which(config["paths"][qemu_key]):
+            logging.info(f"{qemu_key.replace('_', '-')} not found, attempting auto-detection")
+            qemu_found = False
+            for name in binary_names:
+                qemu_path = shutil.which(name)
+                if qemu_path:
+                    config["paths"][qemu_key] = name
+                    logging.info(f"Found {qemu_key.replace('_', '-')}: {name}")
+                    qemu_found = True
+                    break
+            
+            if not qemu_found:
+                logging.warning(f"{qemu_key.replace('_', '-')} not found in PATH")
+                if IS_LINUX:
+                    logging.warning("You might need to install it with: sudo apt-get install -y qemu-user qemu-system")
+                elif IS_MACOS:
+                    logging.warning("You might need to install it with: brew install qemu")
+                elif IS_WINDOWS:
+                    logging.warning("You might need to download and install QEMU from https://qemu.weilnetz.de/w64/")
+                    logging.warning("Make sure to add the QEMU bin directory to your PATH")
+    
     try:
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=4)
@@ -162,9 +194,9 @@ class TestCase:
     def _parse_config(self):
         """Parse test configuration from comments in source file"""
         config = {
-            "targets": CONFIG["targets"],
-            "optimizations": CONFIG["optimizations"],
-            "timeout": CONFIG["timeout"]
+            "targets": CONFIG["options"]["targets"],
+            "optimizations": CONFIG["options"]["optimizations"],
+            "timeout": CONFIG["options"]["default_timeout"]
         }
         
         try:
@@ -245,7 +277,7 @@ def check_compiler_jar(compiler_jar):
             if path != compiler_jar:
                 logging.warning(f"Found compiler at alternative path: {path}")
                 # 更新配置中的路径
-                CONFIG["compiler_jar"] = path
+                CONFIG["paths"]["compiler_jar"] = path
                 try:
                     with open(CONFIG_FILE, 'w') as f:
                         json.dump(CONFIG, f, indent=4)
@@ -258,7 +290,7 @@ def check_compiler_jar(compiler_jar):
     alternative_path = str(PROJECT_ROOT / "target" / "compiler-1.0-SNAPSHOT-jar-with-dependencies.jar")
     if os.path.exists(alternative_path):
         logging.info(f"Found compiler at alternative path: {alternative_path}")
-        CONFIG["compiler_jar"] = alternative_path
+        CONFIG["paths"]["compiler_jar"] = alternative_path
         try:
             with open(CONFIG_FILE, 'w') as f:
                 json.dump(CONFIG, f, indent=4)
@@ -298,7 +330,7 @@ def check_cross_compiler(compiler_name, compiler_path):
 
 def compile_test(test_case, target, optimization, verbose=False):
     """Compile a test case with specific options"""
-    compiler_jar = CONFIG["compiler_jar"]
+    compiler_jar = CONFIG["paths"]["compiler_jar"]
     
     if not check_compiler_jar(compiler_jar):
         return False, None, "Compiler JAR not found"
@@ -331,6 +363,14 @@ def compile_test(test_case, target, optimization, verbose=False):
         if verbose and not success:
             logging.error(f"Compilation failed: {result.stderr}")
         
+        # 检查输出的汇编文件是否存在并有效
+        if success and (not os.path.exists(output_file) or os.path.getsize(output_file) == 0):
+            success = False
+            error_msg = "Compilation succeeded but did not generate a valid assembly file"
+            if verbose:
+                logging.error(error_msg)
+            return False, None, error_msg
+        
         return success, output_file, result.stderr
     except subprocess.TimeoutExpired:
         if verbose:
@@ -348,8 +388,19 @@ def run_arm_test(assembly_file, timeout, verbose=False):
     arm_cc = CONFIG["paths"]["arm_cc"]
     qemu_arm = CONFIG["paths"]["qemu_arm"]
     
-    if not check_cross_compiler("ARM compiler", arm_cc):
-        return False, "ARM compiler not found or not working"
+    # 检查ARM编译器是否可用
+    if not os.path.exists(arm_cc) and not shutil.which(arm_cc):
+        error_msg = f"ARM compiler not found: {arm_cc}"
+        if verbose:
+            logging.error(error_msg)
+        return False, error_msg
+    
+    # 检查QEMU是否可用
+    if not os.path.exists(qemu_arm) and not shutil.which(qemu_arm):
+        error_msg = f"QEMU for ARM not found: {qemu_arm}"
+        if verbose:
+            logging.error(error_msg)
+        return False, error_msg
     
     # Create a C wrapper to call our assembly
     wrapper_c = tempfile.mktemp(suffix=".c")
@@ -441,8 +492,19 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
     riscv_cc = CONFIG["paths"]["riscv_cc"]
     qemu_riscv = CONFIG["paths"]["qemu_riscv"]
     
-    if not check_cross_compiler("RISC-V compiler", riscv_cc):
-        return False, "RISC-V compiler not found or not working"
+    # 检查RISC-V编译器是否可用
+    if not os.path.exists(riscv_cc) and not shutil.which(riscv_cc):
+        error_msg = f"RISC-V compiler not found: {riscv_cc}"
+        if verbose:
+            logging.error(error_msg)
+        return False, error_msg
+    
+    # 检查QEMU是否可用
+    if not os.path.exists(qemu_riscv) and not shutil.which(qemu_riscv):
+        error_msg = f"QEMU for RISC-V not found: {qemu_riscv}"
+        if verbose:
+            logging.error(error_msg)
+        return False, error_msg
     
     # Create a C wrapper to call our assembly
     wrapper_c = tempfile.mktemp(suffix=".c")
@@ -599,11 +661,11 @@ def run_tests(test_cases, args):
         TestResult.SKIPPED: 0
     }
     
-    targets = [args.target] if args.target else CONFIG["targets"]
-    optimizations = [args.optimization] if args.optimization else CONFIG["optimizations"]
+    targets = [args.target] if args.target else CONFIG["options"]["targets"]
+    optimizations = [args.optimization] if args.optimization else CONFIG["options"]["optimizations"]
 
     # Check if compiler JAR exists
-    if not check_compiler_jar(CONFIG["compiler_jar"]):
+    if not check_compiler_jar(CONFIG["paths"]["compiler_jar"]):
         return
 
     print(f"Running {len(test_cases)} tests with targets={targets}, optimizations={optimizations}")
@@ -619,11 +681,14 @@ def run_tests(test_cases, args):
     total = sum(results.values())
     print("\nTest Summary:")
     print(f"Total: {total}")
-    print(f"Passed: {results[TestResult.PASS]} ({results[TestResult.PASS]/total*100:.1f}%)")
-    print(f"Failed: {results[TestResult.FAIL]} ({results[TestResult.FAIL]/total*100:.1f}%)")
-    print(f"Errors: {results[TestResult.ERROR]} ({results[TestResult.ERROR]/total*100:.1f}%)")
-    print(f"Timeouts: {results[TestResult.TIMEOUT]} ({results[TestResult.TIMEOUT]/total*100:.1f}%)")
-    print(f"Skipped: {results[TestResult.SKIPPED]} ({results[TestResult.SKIPPED]/total*100:.1f}%)")
+    if total > 0:
+        print(f"Passed: {results[TestResult.PASS]} ({results[TestResult.PASS]/total*100:.1f}%)")
+        print(f"Failed: {results[TestResult.FAIL]} ({results[TestResult.FAIL]/total*100:.1f}%)")
+        print(f"Errors: {results[TestResult.ERROR]} ({results[TestResult.ERROR]/total*100:.1f}%)")
+        print(f"Timeouts: {results[TestResult.TIMEOUT]} ({results[TestResult.TIMEOUT]/total*100:.1f}%)")
+        print(f"Skipped: {results[TestResult.SKIPPED]} ({results[TestResult.SKIPPED]/total*100:.1f}%)")
+    else:
+        print("No tests were run. Make sure your configuration is correct and test files exist.")
 
 def main():
     """Main entry point for the test framework"""
@@ -642,17 +707,17 @@ def main():
         
         # 确保compiler_jar使用当前系统格式的路径
         if IS_WINDOWS:
-            config["compiler_jar"] = str(DEFAULT_COMPILER_JAR).replace('/', '\\')
+            config["paths"]["compiler_jar"] = str(DEFAULT_COMPILER_JAR).replace('/', '\\')
         else:
-            config["compiler_jar"] = str(DEFAULT_COMPILER_JAR).replace('\\', '/')
+            config["paths"]["compiler_jar"] = str(DEFAULT_COMPILER_JAR).replace('\\', '/')
         
         # 修改为当前系统上的实际路径
         actual_jar_path = str(PROJECT_ROOT / "target" / "compiler-1.0-SNAPSHOT-jar-with-dependencies.jar")
         if os.path.exists(actual_jar_path):
             if IS_WINDOWS:
-                config["compiler_jar"] = actual_jar_path.replace('/', '\\')
+                config["paths"]["compiler_jar"] = actual_jar_path.replace('/', '\\')
             else:
-                config["compiler_jar"] = actual_jar_path.replace('\\', '/')
+                config["paths"]["compiler_jar"] = actual_jar_path.replace('\\', '/')
             print(f"Found compiler JAR at: {actual_jar_path}")
         else:
             print(f"Warning: Compiler JAR not found at: {actual_jar_path}")
@@ -660,13 +725,38 @@ def main():
         
         # 确保编译器路径正确（添加或移除.exe）
         if IS_LINUX or IS_MACOS:
-            for compiler_key in ["arm_cc", "riscv_cc"]:
-                if config["paths"][compiler_key].endswith(".exe"):
-                    config["paths"][compiler_key] = config["paths"][compiler_key][:-4]
+            for key in ["arm_cc", "riscv_cc", "qemu_arm", "qemu_riscv"]:
+                if config["paths"][key].endswith(".exe"):
+                    config["paths"][key] = config["paths"][key][:-4]
         elif IS_WINDOWS:
-            for compiler_key in ["arm_cc", "riscv_cc"]:
-                if not config["paths"][compiler_key].endswith(".exe"):
-                    config["paths"][compiler_key] += ".exe"
+            for key in ["arm_cc", "riscv_cc", "qemu_arm", "qemu_riscv"]:
+                if not config["paths"][key].endswith(".exe"):
+                    config["paths"][key] += ".exe"
+        
+        # 检测QEMU安装情况
+        print("Detecting QEMU...")
+        qemu_executables = {
+            "qemu_arm": ["qemu-arm", "qemu-system-arm"],
+            "qemu_riscv": ["qemu-riscv64", "qemu-system-riscv64"]
+        }
+        
+        for qemu_key, possible_names in qemu_executables.items():
+            qemu_found = False
+            for name in possible_names:
+                if shutil.which(name):
+                    config["paths"][qemu_key] = name
+                    print(f"Found {qemu_key.replace('_', '-')}: {name}")
+                    qemu_found = True
+                    break
+            
+            if not qemu_found:
+                print(f"Warning: {qemu_key.replace('_', '-')} not found in PATH.")
+                if IS_LINUX:
+                    print("You might need to install it with:")
+                    print("  sudo apt-get install -y qemu-user qemu-system")
+                elif IS_MACOS:
+                    print("You might need to install it with:")
+                    print("  brew install qemu")
         
         # 检测适合当前系统的ARM编译器
         if IS_LINUX:
