@@ -380,22 +380,48 @@ def get_target_libsysy(target, verbose=False):
         if verbose:
             logging.info(f"Building {target} library...")
         try:
+            # First clean any existing build
+            subprocess.run(["make", "-C", lib_dir, "clean"], 
+                         stdout=subprocess.PIPE if not verbose else None,
+                         stderr=subprocess.PIPE if not verbose else None,
+                         check=True)
+            
+            # Build the target-specific library
             subprocess.run(["make", "-C", lib_dir, target], 
                          stdout=subprocess.PIPE if not verbose else None,
                          stderr=subprocess.PIPE if not verbose else None,
                          check=True)
-            # Rename the generated library
-            os.rename(default_libsysy, libsysy_path)
+            
+            # If the build succeeded, the library should exist at the default path
+            if os.path.exists(default_libsysy):
+                # Copy (don't rename) to preserve the original for potential future builds
+                shutil.copy2(default_libsysy, libsysy_path)
+                if verbose:
+                    logging.info(f"Successfully built and copied {target} library to {libsysy_path}")
+            else:
+                if verbose:
+                    logging.error(f"Build succeeded but library not found at {default_libsysy}")
+                return None
         except subprocess.CalledProcessError as e:
             if verbose:
                 logging.error(f"Failed to build {target} library: {e}")
+                logging.error(f"stderr: {e.stderr.decode() if hasattr(e, 'stderr') and e.stderr else 'None'}")
             return None
         except Exception as e:
             if verbose:
                 logging.error(f"Error building {target} library: {e}")
             return None
+    else:
+        if verbose:
+            logging.info(f"Using existing {target} library at {libsysy_path}")
     
-    return libsysy_path
+    # Double check the file exists before returning
+    if os.path.exists(libsysy_path):
+        return libsysy_path
+    else:
+        if verbose:
+            logging.error(f"{target} library not found at {libsysy_path}")
+        return None
 
 def run_arm_test(assembly_file, timeout, verbose=False):
     """Run an ARM assembly file using QEMU"""
