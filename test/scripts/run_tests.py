@@ -501,20 +501,21 @@ def run_arm_test(assembly_file, timeout, verbose=False):
         config = load_config(verbose)
         arm_cc = config["paths"]["arm_cc"]
         qemu_arm = config["paths"]["qemu_arm"]
-
+        
         # Create output executable name
         output_exe = assembly_file.replace(".s", "")
         if os.name == "nt":  # Windows
             output_exe += ".exe"
-
+        
         # Create a temporary directory for compilation
         temp_dir = os.path.dirname(assembly_file)
         
-        # Get ARM-specific library
+        # Check if libsysy.a exists for ARM
         libsysy_path = get_target_libsysy("arm", verbose)
         if not libsysy_path:
-            return False, "Failed to get ARM library"
-            
+            return False, "libsysy.a for ARM not found"
+        
+        # Copy libsysy.a to temporary directory if it doesn't exist there
         local_libsysy = os.path.join(temp_dir, "libsysy.a")
         if not os.path.exists(local_libsysy):
             shutil.copy2(libsysy_path, local_libsysy)
@@ -551,8 +552,8 @@ def run_arm_test(assembly_file, timeout, verbose=False):
             # Always append the exit code to output
             output = output.rstrip() + f"\nExit code: {process.returncode}"
             return True, output
-    
-    except subprocess.TimeoutExpired:
+        
+        except subprocess.TimeoutExpired:
             process.kill()
             return False, "Execution timeout"
 
@@ -566,16 +567,19 @@ def run_arm_test(assembly_file, timeout, verbose=False):
         return False, f"Execution error: {str(e)}"
     finally:
         # Clean up
-                try:
+        try:
             if os.path.exists(output_exe):
                 os.remove(output_exe)
             if os.path.exists(local_libsysy):
                 os.remove(local_libsysy)
-                except:
-                    pass
+        except:
+            pass
 
 def run_riscv_test(assembly_file, timeout, verbose=False):
     """Run a RISC-V assembly file using QEMU"""
+    output_exe = None
+    local_libsysy = None
+    
     try:
         # Get paths from config
         config = load_config(verbose)
@@ -631,8 +635,7 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
             # Always append the exit code to output
             output = output.rstrip() + f"\nExit code: {process.returncode}"
             return True, output
-    
-    except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired:
             process.kill()
             return False, "Execution timeout"
 
@@ -646,13 +649,13 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
         return False, f"Execution error: {str(e)}"
     finally:
         # Clean up
-                try:
-            if os.path.exists(output_exe):
+        try:
+            if output_exe and os.path.exists(output_exe):
                 os.remove(output_exe)
-            if os.path.exists(local_libsysy):
+            if local_libsysy and os.path.exists(local_libsysy):
                 os.remove(local_libsysy)
-                except:
-                    pass
+        except:
+            pass
 
 def run_test(test_case, target, optimization, verbose=False):
     """Run a test with specific configuration"""
@@ -708,7 +711,7 @@ def run_test(test_case, target, optimization, verbose=False):
         # Clean up assembly file
         if assembly_file and os.path.exists(assembly_file):
             try:
-            os.remove(assembly_file)
+                os.remove(assembly_file)
             except:
                 pass
 
@@ -766,10 +769,10 @@ def run_tests(test_cases, args):
     print("\nTest Summary:")
     print(f"Total: {total}")
     if total > 0:
-    print(f"Passed: {results[TestResult.PASS]} ({results[TestResult.PASS]/total*100:.1f}%)")
-    print(f"Failed: {results[TestResult.FAIL]} ({results[TestResult.FAIL]/total*100:.1f}%)")
-    print(f"Errors: {results[TestResult.ERROR]} ({results[TestResult.ERROR]/total*100:.1f}%)")
-    print(f"Timeouts: {results[TestResult.TIMEOUT]} ({results[TestResult.TIMEOUT]/total*100:.1f}%)")
+        print(f"Passed: {results[TestResult.PASS]} ({results[TestResult.PASS]/total*100:.1f}%)")
+        print(f"Failed: {results[TestResult.FAIL]} ({results[TestResult.FAIL]/total*100:.1f}%)")
+        print(f"Errors: {results[TestResult.ERROR]} ({results[TestResult.ERROR]/total*100:.1f}%)")
+        print(f"Timeouts: {results[TestResult.TIMEOUT]} ({results[TestResult.TIMEOUT]/total*100:.1f}%)")
         print(f"Skipped: {results[TestResult.SKIPPED]} ({results[TestResult.SKIPPED]/total*100:.1f}%)")
     else:
         print("No tests were run. Make sure your configuration is correct and test files exist.")
