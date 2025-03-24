@@ -346,32 +346,21 @@ def compile_test(test_case, target, optimization, verbose=False):
             text=True
         )
         
-        # For syntax tests, we need special handling
+        # For syntax tests, non-zero exit code is expected (compilation should fail)
         if test_case.category == "syntax":
-            # Check multiple indicators of a syntax error:
-            # 1. Non-zero return code
-            # 2. Error message containing "syntax" or "parse" or similar keywords
-            # 3. No assembly file generated or empty assembly file
-            has_error_code = result.returncode != 0
-            has_error_message = any(kw in result.stderr.lower() for kw in ["syntax", "parse", "token", "expect"])
-            no_valid_assembly = not os.path.exists(output_file) or os.path.getsize(output_file) == 0
-            
-            # Consider it a success if ANY of these indicate a syntax error
-            syntax_error_detected = has_error_code or has_error_message or no_valid_assembly
-            
-            if syntax_error_detected:
-                if verbose:
-                    logging.info(f"Syntax error detected: code={result.returncode}, has_error_msg={has_error_message}, no_valid_asm={no_valid_assembly}")
-                return True, None, "Syntax error detected as expected"
+            # 检查文件名是否包含"invalid"关键字，如果是，那么预期是编译失败
+            if "invalid" in test_case.file_path:
+                if result.returncode != 0:
+                    return True, None, "Syntax error detected as expected"
+                else:
+                    return False, None, "Expected syntax error, but compilation succeeded"
             else:
-                if verbose:
-                    logging.warning(f"Expected syntax error, but compilation succeeded. Return code: {result.returncode}")
-                    logging.warning(f"Stderr: {result.stderr}")
-                    if os.path.exists(output_file):
-                        logging.warning(f"Assembly file exists with size: {os.path.getsize(output_file)} bytes")
-                return False, None, "Expected syntax error, but compilation succeeded"
+                # 对于其他语法测试，可能是测试有效语法，应该编译成功
+                if result.returncode == 0:
+                    return True, None, "Valid syntax compiled successfully as expected"
+                else:
+                    return False, None, f"Expected successful compilation, but got error: {result.stderr}"
         
-        # For normal tests
         success = result.returncode == 0
         
         if verbose and not success:
