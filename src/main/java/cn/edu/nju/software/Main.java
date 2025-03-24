@@ -127,9 +127,23 @@ public class Main {
                 case "-S":
                     emitAssembly = true;
                     break;
+                case "--target":
+                    index = Arrays.asList(args).indexOf(arg);
+                    if (index + 1 < args.length) {
+                        String target = args[index + 1];
+                        if ("arm".equalsIgnoreCase(target)) {
+                            isArm = true;
+                        } else if ("riscv".equalsIgnoreCase(target)) {
+                            isArm = false;
+                        } else {
+                            System.err.println("Warning: Unknown target '" + target + "'. Using default target (arm).");
+                            isArm = true;
+                        }
+                    }
+                    break;
                 default:
                     index = Arrays.asList(args).indexOf(arg);
-                    if (0 == index || !"-o".equals(args[index - 1]) ) {
+                    if (0 == index || (!"-o".equals(args[index - 1]) && !"--target".equals(args[index - 1]))) {
                         input = arg;
                     }
             }

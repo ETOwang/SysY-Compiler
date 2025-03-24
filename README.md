@@ -96,8 +96,7 @@ java -jar target/compiler-1.0-SNAPSHOT-jar-with-dependencies.jar input.sy --emit
 ### Generate RISC-V Assembly
 
 ```bash
-# Note: Currently this option is not directly exposed, but can be implemented in future versions
-java -jar target/compiler-1.0-SNAPSHOT-jar-with-dependencies.jar input.sy -S --target=riscv -o output.s
+java -jar target/compiler-1.0-SNAPSHOT-jar-with-dependencies.jar input.sy -S --target riscv -o output.s
 ```
 
 ### Enable Optimizations
@@ -119,6 +118,7 @@ java -jar target/compiler-1.0-SNAPSHOT-jar-with-dependencies.jar input.sy -S -O2
 | `--emit-llvm` | Generate LLVM IR |
 | `-O0` | No optimizations (default) |
 | `-O1`, `-O2` | Enable optimizations |
+| `--target <arch>` | Specify target architecture (arm or riscv, default: arm) |
 
 ## Optimizations
 
