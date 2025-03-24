@@ -23,7 +23,7 @@ from pathlib import Path
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,  # 默认设置为WARNING级别
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%H:%M:%S"
 )
@@ -81,7 +81,7 @@ elif IS_WINDOWS:
     DEFAULT_CONFIG["paths"]["qemu_riscv"] += ".exe"
 
 # Load or create configuration
-def load_config():
+def load_config(verbose=False):
     """Load or create configuration"""
     config = DEFAULT_CONFIG.copy()
     if os.path.exists(CONFIG_FILE):
@@ -89,7 +89,7 @@ def load_config():
             with open(CONFIG_FILE, 'r') as f:
                 loaded_config = json.load(f)
                 if verbose:
-                logging.info(f"Loaded configuration from {CONFIG_FILE}")
+                    logging.info(f"Loaded configuration from {CONFIG_FILE}")
                 
                 # Merge paths
                 if "paths" in loaded_config:
@@ -104,7 +104,8 @@ def load_config():
                     current_os_path = str(DEFAULT_COMPILER_JAR).replace('\\', '/')
                     if (IS_WINDOWS and '/' in config["paths"]["compiler_jar"] and not '\\' in config["paths"]["compiler_jar"]) or \
                        (not IS_WINDOWS and '\\' in config["paths"]["compiler_jar"]):
-                        logging.warning(f"Detected mismatched path format in config. Updating compiler_jar path.")
+                        if verbose:
+                            logging.warning(f"Detected mismatched path format in config. Updating compiler_jar path.")
                         config["paths"]["compiler_jar"] = current_os_path
                 
                 # Fix executable extensions
@@ -112,19 +113,23 @@ def load_config():
                     for key in ["arm_cc", "riscv_cc", "qemu_arm", "qemu_riscv"]:
                         if key in config["paths"] and config["paths"][key].endswith(".exe"):
                             config["paths"][key] = config["paths"][key][:-4]
-                            logging.warning(f"Removed .exe suffix from {key} path")
+                            if verbose:
+                                logging.warning(f"Removed .exe suffix from {key} path")
                 elif IS_WINDOWS:
                     for key in ["arm_cc", "riscv_cc", "qemu_arm", "qemu_riscv"]:
                         if key in config["paths"] and not config["paths"][key].endswith(".exe"):
                             config["paths"][key] += ".exe"
-                            logging.warning(f"Added .exe suffix to {key} path")
+                            if verbose:
+                                logging.warning(f"Added .exe suffix to {key} path")
         except Exception as e:
-            logging.warning(f"Failed to load config file: {e}")
+            if verbose:
+                logging.warning(f"Failed to load config file: {e}")
             config = DEFAULT_CONFIG.copy()
     
     # Auto-detect RISC-V toolchain if needed
     if not os.path.exists(config["paths"]["riscv_cc"]) and not shutil.which(config["paths"]["riscv_cc"]):
-        logging.info("RISC-V toolchain not found, attempting auto-detection")
+        if verbose:
+            logging.info("RISC-V toolchain not found, attempting auto-detection")
         riscv_gcc_names = [
             "riscv64-unknown-elf-gcc",
             "riscv64-linux-gnu-gcc",
@@ -139,21 +144,24 @@ def load_config():
             gcc_path = shutil.which(gcc_name)
             if gcc_path:
                 config["paths"]["riscv_cc"] = gcc_name
-                logging.info(f"Found RISC-V toolchain: {gcc_name}")
+                if verbose:
+                    logging.info(f"Found RISC-V toolchain: {gcc_name}")
                 break
     
     # Save updated configuration
     try:
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=4)
-            logging.info(f"Updated configuration at {CONFIG_FILE}")
+            if verbose:
+                logging.info(f"Updated configuration at {CONFIG_FILE}")
     except Exception as e:
-        logging.warning(f"Failed to write config: {e}")
+        if verbose:
+            logging.warning(f"Failed to write config: {e}")
     
     return config
 
 # Load configuration
-CONFIG = load_config()
+CONFIG = None  # 初始化全局变量
 
 class TestResult(Enum):
     PASS = "PASS"
@@ -239,7 +247,8 @@ def collect_test_cases(args):
         else:
             logging.warning(f"Category directory not found: {category_dir}")
     
-    logging.info(f"Collected {len(test_cases)} test cases")
+    if args.verbose:
+        logging.info(f"Collected {len(test_cases)} test cases")
     return test_cases
 
 def check_compiler_jar(compiler_jar):
@@ -383,9 +392,9 @@ def get_target_libsysy(target, verbose=False):
         try:
             # First clean any existing build
             subprocess.run(["make", "-C", lib_dir, "clean"], 
-                         stdout=subprocess.PIPE if not verbose else None,
-                         stderr=subprocess.PIPE if not verbose else None,
-                         check=True)
+                          stdout=subprocess.PIPE if not verbose else None,
+                          stderr=subprocess.PIPE if not verbose else None,
+                          check=True)
             
             # Choose the appropriate compiler based on target and config
             if target == "arm":
@@ -481,7 +490,7 @@ def run_arm_test(assembly_file, timeout, verbose=False):
     """Run an ARM assembly file using QEMU"""
     try:
         # Get paths from config
-        config = load_config()
+        config = load_config(verbose)
         arm_cc = config["paths"]["arm_cc"]
         qemu_arm = config["paths"]["qemu_arm"]
 
@@ -561,7 +570,7 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
     """Run a RISC-V assembly file using QEMU"""
     try:
         # Get paths from config
-        config = load_config()
+        config = load_config(verbose)
         riscv_cc = config["paths"]["riscv_cc"]
         qemu_riscv = config["paths"]["qemu_riscv"]
 
@@ -734,7 +743,8 @@ def run_tests(test_cases, args):
     if not check_compiler_jar(CONFIG["paths"]["compiler_jar"]):
         return
 
-    print(f"Running {len(test_cases)} tests with targets={targets}, optimizations={optimizations}")
+    if args.verbose:
+        logging.info(f"Running {len(test_cases)} tests with targets={targets}, optimizations={optimizations}")
     
     for test_case in test_cases:
         for target in targets:
@@ -767,6 +777,14 @@ def main():
     parser.add_argument("--update-config", action="store_true", help="Reset the configuration file to defaults")
     
     args = parser.parse_args()
+    
+    # 根据verbose参数设置日志级别
+    if args.verbose:
+        logging.getLogger().setLevel(logging.INFO)
+    
+    # 在main中加载配置，并使其成为全局变量
+    global CONFIG
+    CONFIG = load_config(args.verbose)
     
     if args.update_config:
         config = DEFAULT_CONFIG.copy()
