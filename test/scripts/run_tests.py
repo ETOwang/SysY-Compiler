@@ -56,18 +56,18 @@ EXE_EXT = ".exe" if IS_WINDOWS else ""
 # Default configuration
 DEFAULT_CONFIG = {
     "paths": {
-        "compiler_jar": str(PROJECT_ROOT / "target" / "compiler-1.0-SNAPSHOT-jar-with-dependencies.jar"),
-        "arm_cc": "arm-linux-gnueabi-gcc",
+        "compiler_jar": os.path.join(PROJECT_ROOT, "target", "compiler-1.0-SNAPSHOT-jar-with-dependencies.jar"),
+        "arm_cc": "arm-linux-gnueabihf-gcc",
         "riscv_cc": "riscv64-unknown-elf-gcc",
         "qemu_arm": "qemu-arm",
         "qemu_riscv": "qemu-riscv64"
     },
     "options": {
-        "default_timeout": 30,  # 默认超时时间（秒）
-        "default_target": "arm",  # 默认目标架构
-        "default_optimization": "O0",  # 默认优化级别
-        "targets": ["arm", "riscv"],  # 支持的目标架构
-        "optimizations": ["O0", "O1", "O2"]  # 支持的优化级别
+        "default_timeout": 30,
+        "default_target": "arm",
+        "default_optimization": "O0",
+        "targets": ["arm", "riscv"],
+        "optimizations": ["O0", "O1", "O2"]
     }
 }
 
@@ -82,43 +82,46 @@ elif IS_WINDOWS:
 
 # Load or create configuration
 def load_config():
-    config = None
+    """Load or create configuration"""
+    config = DEFAULT_CONFIG.copy()
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
-                config = json.load(f)
+                loaded_config = json.load(f)
                 logging.info(f"Loaded configuration from {CONFIG_FILE}")
                 
-                if "compiler_jar" in config:
-                    current_os_path = str(DEFAULT_COMPILER_JAR).replace('\\', '/')
-                    if (IS_WINDOWS and '/' in config["compiler_jar"] and not '\\' in config["compiler_jar"]) or \
-                       (not IS_WINDOWS and '\\' in config["compiler_jar"]):
-                        logging.warning(f"Detected mismatched path format in config. Updating compiler_jar path.")
-                        config["compiler_jar"] = current_os_path
+                # Merge paths
+                if "paths" in loaded_config:
+                    config["paths"].update(loaded_config["paths"])
                 
-                # 修复ARM、RISC-V编译器和QEMU路径中的.exe后缀
+                # Merge options
+                if "options" in loaded_config:
+                    config["options"].update(loaded_config["options"])
+                
+                # Handle compiler_jar path format
+                if "compiler_jar" in config["paths"]:
+                    current_os_path = str(DEFAULT_COMPILER_JAR).replace('\\', '/')
+                    if (IS_WINDOWS and '/' in config["paths"]["compiler_jar"] and not '\\' in config["paths"]["compiler_jar"]) or \
+                       (not IS_WINDOWS and '\\' in config["paths"]["compiler_jar"]):
+                        logging.warning(f"Detected mismatched path format in config. Updating compiler_jar path.")
+                        config["paths"]["compiler_jar"] = current_os_path
+                
+                # Fix executable extensions
                 if IS_LINUX or IS_MACOS:
                     for key in ["arm_cc", "riscv_cc", "qemu_arm", "qemu_riscv"]:
                         if key in config["paths"] and config["paths"][key].endswith(".exe"):
-                            config["paths"][key] = config["paths"][key][:-4]  # 去掉.exe
+                            config["paths"][key] = config["paths"][key][:-4]
                             logging.warning(f"Removed .exe suffix from {key} path")
                 elif IS_WINDOWS:
                     for key in ["arm_cc", "riscv_cc", "qemu_arm", "qemu_riscv"]:
                         if key in config["paths"] and not config["paths"][key].endswith(".exe"):
-                            config["paths"][key] += ".exe"  # 添加.exe
+                            config["paths"][key] += ".exe"
                             logging.warning(f"Added .exe suffix to {key} path")
         except Exception as e:
             logging.warning(f"Failed to load config file: {e}")
+            config = DEFAULT_CONFIG.copy()
     
-    if config is None:
-        config = DEFAULT_CONFIG.copy()
-    
-    if "compiler_jar" in config:
-        if IS_WINDOWS:
-            config["compiler_jar"] = config["compiler_jar"].replace('/', '\\')
-        else:
-            config["compiler_jar"] = config["compiler_jar"].replace('\\', '/')
-    
+    # Auto-detect RISC-V toolchain if needed
     if not os.path.exists(config["paths"]["riscv_cc"]) and not shutil.which(config["paths"]["riscv_cc"]):
         logging.info("RISC-V toolchain not found, attempting auto-detection")
         riscv_gcc_names = [
@@ -138,32 +141,7 @@ def load_config():
                 logging.info(f"Found RISC-V toolchain: {gcc_name}")
                 break
     
-    # 检测QEMU是否存在
-    for qemu_key, binary_names in {
-        "qemu_arm": ["qemu-arm", "qemu-system-arm"],
-        "qemu_riscv": ["qemu-riscv64", "qemu-system-riscv64"]
-    }.items():
-        if not os.path.exists(config["paths"][qemu_key]) and not shutil.which(config["paths"][qemu_key]):
-            logging.info(f"{qemu_key.replace('_', '-')} not found, attempting auto-detection")
-            qemu_found = False
-            for name in binary_names:
-                qemu_path = shutil.which(name)
-                if qemu_path:
-                    config["paths"][qemu_key] = name
-                    logging.info(f"Found {qemu_key.replace('_', '-')}: {name}")
-                    qemu_found = True
-                    break
-            
-            if not qemu_found:
-                logging.warning(f"{qemu_key.replace('_', '-')} not found in PATH")
-                if IS_LINUX:
-                    logging.warning("You might need to install it with: sudo apt-get install -y qemu-user qemu-system")
-                elif IS_MACOS:
-                    logging.warning("You might need to install it with: brew install qemu")
-                elif IS_WINDOWS:
-                    logging.warning("You might need to download and install QEMU from https://qemu.weilnetz.de/w64/")
-                    logging.warning("Make sure to add the QEMU bin directory to your PATH")
-    
+    # Save updated configuration
     try:
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=4)
