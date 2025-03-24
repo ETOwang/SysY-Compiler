@@ -336,6 +336,14 @@ def compile_test(test_case, target, optimization, verbose=False):
             text=True
         )
         
+        # For syntax tests, non-zero exit code is expected
+        if test_case.category == "syntax":
+            success = result.returncode != 0
+            if success:
+                return True, None, "Syntax error detected as expected"
+            else:
+                return False, None, "Expected syntax error, but compilation succeeded"
+        
         success = result.returncode == 0
         
         if verbose and not success:
@@ -574,6 +582,14 @@ def run_test(test_case, target, optimization, verbose=False):
     if target not in test_case.config["targets"] or optimization not in test_case.config["optimizations"]:
         return TestResult.SKIPPED, f"Test not configured for {target}/{optimization}", None
     
+    # For syntax tests, we only care about compilation
+    if test_case.category == "syntax":
+        success, _, message = compile_test(test_case, target, optimization, verbose)
+        if success:
+            return TestResult.PASS, message, None
+        else:
+            return TestResult.FAIL, message, None
+    
     # Compile the test case
     success, assembly_file, error_message = compile_test(test_case, target, optimization, verbose)
     if not success:
@@ -591,13 +607,28 @@ def run_test(test_case, target, optimization, verbose=False):
         if not success:
             return TestResult.ERROR, output, None
         
+        # Extract exit code from output
+        exit_code_match = re.search(r'Exit code: (\d+)', output)
+        if not exit_code_match:
+            return TestResult.FAIL, "No exit code found in output", output
+        
+        # Remove exit code from output for comparison
+        actual_output = output.replace(exit_code_match.group(0), '').strip()
+        
         # Compare with expected output
-        success = test_case.expected_output in output
-        if success:
-            return TestResult.PASS, "Output matches expected", output
-        else:
-            diff_message = f"Expected: '{test_case.expected_output}'\nActual: '{output}'"
-            return TestResult.FAIL, diff_message, output
+        if test_case.expected_output:
+            expected_parts = test_case.expected_output.split('Exit code:', 1)
+            expected_output = expected_parts[0].strip()
+            if len(expected_parts) > 1:
+                expected_exit = expected_parts[1].strip()
+                if expected_exit != exit_code_match.group(1):
+                    return TestResult.FAIL, f"Exit code mismatch. Expected: {expected_exit}, Got: {exit_code_match.group(1)}", output
+            
+            if expected_output and expected_output not in actual_output:
+                diff_message = f"Output mismatch.\nExpected: '{expected_output}'\nActual: '{actual_output}'"
+                return TestResult.FAIL, diff_message, output
+        
+        return TestResult.PASS, "Test passed", output
     
     finally:
         # Clean up assembly file
