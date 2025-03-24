@@ -188,23 +188,24 @@ class TestCase:
         
         try:
             with open(self.file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            match = re.search(r'// TEST_CONFIG:\s*(.*?)(?:\n|$)', content)
-            if match:
-                config_str = match.group(1)
-                for item in config_str.split(';'):
-                    if '=' in item:
-                        key, value = item.split('=', 1)
-                        key = key.strip()
-                        value = [v.strip() for v in value.split(',')]
-                        if key == 'target':
-                            config['targets'] = value
-                        elif key == 'optimization':
-                            config['optimizations'] = value
-                        elif key == 'timeout':
-                            config['timeout'] = int(value[0])
+                content = f.read()
+                match = re.search(r'// TEST_CONFIG:\s*(.*?)(?:\n|$)', content)
+                if match:
+                    config_str = match.group(1)
+                    for item in config_str.split(';'):
+                        if '=' in item:
+                            key, value = item.split('=', 1)
+                            key = key.strip()
+                            value = [v.strip() for v in value.split(',')]
+                            if key == 'target':
+                                config["targets"] = value
+                            elif key == 'optimization':
+                                config["optimizations"] = value
+                            elif key == 'timeout':
+                                if len(value) == 1 and value[0].isdigit():
+                                    config["timeout"] = int(value[0])
         except Exception as e:
-            logging.warning(f"Error parsing test config for {self.name}: {e}")
+            logging.warning(f"Failed to parse test config for {self.file_path}: {e}")
         
         return config
     
@@ -216,11 +217,11 @@ class TestCase:
         if expected_file.exists():
             try:
                 with open(expected_file, 'r', encoding='utf-8') as f:
-                return f.read().strip()
+                    return f.read().strip()
             except Exception as e:
-                logging.warning(f"Error reading expected output for {self.name}: {e}")
-                return ""
-        return ""
+                logging.warning(f"Failed to load expected output for {self.name}: {e}")
+                return None
+        return None
     
     def __str__(self):
         return f"{self.category}/{self.name}"
