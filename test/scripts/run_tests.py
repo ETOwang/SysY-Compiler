@@ -395,19 +395,20 @@ def run_arm_test(assembly_file, timeout, verbose=False):
 #include <stdio.h>
 #include <stdlib.h>
 
-/* 使用唯一名称避免与汇编中的main冲突 */
+/* 声明汇编中的main函数 */
 extern int main();
 
-/* 改为唯一的包装器名称 */
-int sysy_test_wrapper() {
-    int result = main();
-    printf("Exit code: %d\\n", result);
+/* 主函数 */
+int main(void) {
+    int result;
+    /* 捕获汇编main函数的返回值 */
+    result = main();
+    /* 确保输出被刷新 */
+    fflush(stdout);
+    /* 在所有输出之后打印返回码 */
+    printf("\\nExit code: %d\\n", result);
+    fflush(stdout);
     return result;
-}
-
-/* 重命名main函数避免冲突 */
-int main() {
-    return sysy_test_wrapper();
 }
 """)
     
@@ -418,8 +419,8 @@ int main() {
         temp_sylib_h = os.path.join(os.path.dirname(wrapper_c), "sylib.h")
         shutil.copyfile(str(SYLIB_H), temp_sylib_h)
         
-        # Compile with wrapper and link with libsysy.a - 使用-Wl,--allow-multiple-definition允许重复定义
-        compile_cmd = [arm_cc, "-static", wrapper_c, assembly_file, str(LIBSYSY_A), "-o", output_exe, 
+        # Compile with wrapper and link with libsysy.a
+        compile_cmd = [arm_cc, "-static", "-O0", wrapper_c, assembly_file, str(LIBSYSY_A), "-o", output_exe, 
                       "-I", os.path.dirname(temp_sylib_h), "-Wl,--allow-multiple-definition"]
         if verbose:
             logging.info(f"Executing: {' '.join(compile_cmd)}")
@@ -438,7 +439,7 @@ int main() {
             return False, "GCC compilation failed: " + compile_result.stderr
         
         # Run with QEMU
-        run_cmd = [qemu_arm, output_exe]
+        run_cmd = [qemu_arm, "-L", "/usr/arm-linux-gnueabihf", output_exe]
         if verbose:
             logging.info(f"Executing: {' '.join(run_cmd)}")
         
@@ -499,19 +500,20 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
 #include <stdio.h>
 #include <stdlib.h>
 
-/* 使用唯一名称避免与汇编中的main冲突 */
+/* 声明汇编中的main函数 */
 extern int main();
 
-/* 改为唯一的包装器名称 */
-int sysy_test_wrapper() {
-    int result = main();
-    printf("Exit code: %d\\n", result);
+/* 主函数 */
+int main(void) {
+    int result;
+    /* 捕获汇编main函数的返回值 */
+    result = main();
+    /* 确保输出被刷新 */
+    fflush(stdout);
+    /* 在所有输出之后打印返回码 */
+    printf("\\nExit code: %d\\n", result);
+    fflush(stdout);
     return result;
-}
-
-/* 重命名main函数避免冲突 */
-int main() {
-    return sysy_test_wrapper();
 }
 """)
     
@@ -522,8 +524,8 @@ int main() {
         temp_sylib_h = os.path.join(os.path.dirname(wrapper_c), "sylib.h")
         shutil.copyfile(str(SYLIB_H), temp_sylib_h)
         
-        # Compile with wrapper and link with libsysy.a - 使用-Wl,--allow-multiple-definition允许重复定义
-        compile_cmd = [riscv_cc, "-static", wrapper_c, assembly_file, str(LIBSYSY_A), "-o", output_exe, 
+        # Compile with wrapper and link with libsysy.a
+        compile_cmd = [riscv_cc, "-static", "-O0", wrapper_c, assembly_file, str(LIBSYSY_A), "-o", output_exe, 
                       "-I", os.path.dirname(temp_sylib_h), "-Wl,--allow-multiple-definition"]
         if verbose:
             logging.info(f"Executing: {' '.join(compile_cmd)}")
@@ -542,7 +544,7 @@ int main() {
             return False, "GCC compilation failed: " + compile_result.stderr
         
         # Run with QEMU
-        run_cmd = [qemu_riscv, output_exe]
+        run_cmd = [qemu_riscv, "-L", "/usr/riscv64-linux-gnu", output_exe]
         if verbose:
             logging.info(f"Executing: {' '.join(run_cmd)}")
         
