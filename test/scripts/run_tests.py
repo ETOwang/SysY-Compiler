@@ -396,13 +396,13 @@ def run_arm_test(assembly_file, timeout, verbose=False):
 #include <stdlib.h>
 
 /* 声明汇编中的main函数 */
-extern int main();
+int sysy_main() __asm__("main");
 
 /* 主函数 */
 int main(void) {
     int result;
     /* 捕获汇编main函数的返回值 */
-    result = main();
+    result = sysy_main();
     /* 确保输出被刷新 */
     fflush(stdout);
     /* 在所有输出之后打印返回码 */
@@ -439,7 +439,7 @@ int main(void) {
             return False, "GCC compilation failed: " + compile_result.stderr
         
         # Run with QEMU
-        run_cmd = [qemu_arm, "-L", "/usr/arm-linux-gnueabihf", output_exe]
+        run_cmd = [qemu_arm, output_exe]
         if verbose:
             logging.info(f"Executing: {' '.join(run_cmd)}")
         
@@ -450,6 +450,9 @@ int main(void) {
             timeout=timeout,
             text=True
         )
+        
+        if run_result.returncode != 0 and verbose:
+            logging.error(f"QEMU execution failed: {run_result.stderr}")
         
         return True, run_result.stdout.strip()
     
@@ -501,13 +504,13 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
 #include <stdlib.h>
 
 /* 声明汇编中的main函数 */
-extern int main();
+int sysy_main() __asm__("main");
 
 /* 主函数 */
 int main(void) {
     int result;
     /* 捕获汇编main函数的返回值 */
-    result = main();
+    result = sysy_main();
     /* 确保输出被刷新 */
     fflush(stdout);
     /* 在所有输出之后打印返回码 */
@@ -544,7 +547,7 @@ int main(void) {
             return False, "GCC compilation failed: " + compile_result.stderr
         
         # Run with QEMU
-        run_cmd = [qemu_riscv, "-L", "/usr/riscv64-linux-gnu", output_exe]
+        run_cmd = [qemu_riscv, output_exe]
         if verbose:
             logging.info(f"Executing: {' '.join(run_cmd)}")
         
@@ -555,6 +558,9 @@ int main(void) {
             timeout=timeout,
             text=True
         )
+        
+        if run_result.returncode != 0 and verbose:
+            logging.error(f"QEMU execution failed: {run_result.stderr}")
         
         return True, run_result.stdout.strip()
     
