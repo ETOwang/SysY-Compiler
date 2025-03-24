@@ -369,6 +369,34 @@ def compile_test(test_case, target, optimization, verbose=False):
         
         return False, None, f"Compilation error: {str(e)}"
 
+def get_target_libsysy(target, verbose=False):
+    """Get the appropriate libsysy.a for the target platform"""
+    lib_dir = os.path.join(PROJECT_ROOT, "lib")
+    libsysy_path = os.path.join(lib_dir, f"libsysy_{target}.a")
+    default_libsysy = os.path.join(lib_dir, "libsysy.a")
+    
+    # If target-specific library doesn't exist, try to build it
+    if not os.path.exists(libsysy_path):
+        if verbose:
+            logging.info(f"Building {target} library...")
+        try:
+            subprocess.run(["make", "-C", lib_dir, target], 
+                         stdout=subprocess.PIPE if not verbose else None,
+                         stderr=subprocess.PIPE if not verbose else None,
+                         check=True)
+            # Rename the generated library
+            os.rename(default_libsysy, libsysy_path)
+        except subprocess.CalledProcessError as e:
+            if verbose:
+                logging.error(f"Failed to build {target} library: {e}")
+            return None
+        except Exception as e:
+            if verbose:
+                logging.error(f"Error building {target} library: {e}")
+            return None
+    
+    return libsysy_path
+
 def run_arm_test(assembly_file, timeout, verbose=False):
     """Run an ARM assembly file using QEMU"""
     try:
@@ -384,19 +412,17 @@ def run_arm_test(assembly_file, timeout, verbose=False):
 
         # Create a temporary directory for compilation
         temp_dir = os.path.dirname(assembly_file)
-        lib_dir = os.path.join(PROJECT_ROOT, "lib")
-        libsysy_path = os.path.join(lib_dir, "libsysy.a")
-        local_libsysy = os.path.join(temp_dir, "libsysy.a")
         
-        if not os.path.exists(libsysy_path):
-            if verbose:
-                logging.error(f"libsysy.a not found at {libsysy_path}")
-            return False, "libsysy.a not found"
+        # Get ARM-specific library
+        libsysy_path = get_target_libsysy("arm", verbose)
+        if not libsysy_path:
+            return False, "Failed to get ARM library"
             
+        local_libsysy = os.path.join(temp_dir, "libsysy.a")
         if not os.path.exists(local_libsysy):
             shutil.copy2(libsysy_path, local_libsysy)
             if verbose:
-                logging.info(f"Copied libsysy.a to {local_libsysy}")
+                logging.info(f"Copied ARM libsysy.a to {local_libsysy}")
 
         # Compile assembly to executable, linking with libsysy.a
         compile_cmd = [arm_cc, "-static", assembly_file, "-L", temp_dir, "-lsysy", "-o", output_exe]
@@ -466,19 +492,17 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
 
         # Create a temporary directory for compilation
         temp_dir = os.path.dirname(assembly_file)
-        lib_dir = os.path.join(PROJECT_ROOT, "lib")
-        libsysy_path = os.path.join(lib_dir, "libsysy.a")
-        local_libsysy = os.path.join(temp_dir, "libsysy.a")
         
-        if not os.path.exists(libsysy_path):
-            if verbose:
-                logging.error(f"libsysy.a not found at {libsysy_path}")
-            return False, "libsysy.a not found"
+        # Get RISC-V-specific library
+        libsysy_path = get_target_libsysy("riscv", verbose)
+        if not libsysy_path:
+            return False, "Failed to get RISC-V library"
             
+        local_libsysy = os.path.join(temp_dir, "libsysy.a")
         if not os.path.exists(local_libsysy):
             shutil.copy2(libsysy_path, local_libsysy)
             if verbose:
-                logging.info(f"Copied libsysy.a to {local_libsysy}")
+                logging.info(f"Copied RISC-V libsysy.a to {local_libsysy}")
 
         # Compile assembly to executable, linking with libsysy.a
         compile_cmd = [riscv_cc, "-static", assembly_file, "-L", temp_dir, "-lsysy", "-o", output_exe]
