@@ -421,12 +421,14 @@ def run_arm_test(assembly_file, timeout, verbose=False):
         try:
             stdout, stderr = process.communicate(timeout=timeout)
             output = stdout.decode()
-            if process.returncode != 0:
+            if stderr:
                 if verbose:
-                    logging.error(f"Execution failed with return code {process.returncode}")
                     logging.error(f"stderr: {stderr.decode()}")
-                return False, f"Execution failed with return code {process.returncode}"
+            
+            # Always append the exit code to output
+            output = output.rstrip() + f"\nExit code: {process.returncode}"
             return True, output
+
         except subprocess.TimeoutExpired:
             process.kill()
             return False, "Execution timeout"
@@ -501,12 +503,14 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
         try:
             stdout, stderr = process.communicate(timeout=timeout)
             output = stdout.decode()
-            if process.returncode != 0:
+            if stderr:
                 if verbose:
-                    logging.error(f"Execution failed with return code {process.returncode}")
                     logging.error(f"stderr: {stderr.decode()}")
-                return False, f"Execution failed with return code {process.returncode}"
+            
+            # Always append the exit code to output
+            output = output.rstrip() + f"\nExit code: {process.returncode}"
             return True, output
+
         except subprocess.TimeoutExpired:
             process.kill()
             return False, "Execution timeout"
