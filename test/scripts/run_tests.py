@@ -382,19 +382,28 @@ def run_arm_test(assembly_file, timeout, verbose=False):
         if os.name == "nt":  # Windows
             output_exe += ".exe"
 
-        # Copy libsysy.a to current directory if it doesn't exist
-        lib_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(assembly_file))), "lib")
+        # Create a temporary directory for compilation
+        temp_dir = os.path.dirname(assembly_file)
+        lib_dir = os.path.join(PROJECT_ROOT, "lib")
         libsysy_path = os.path.join(lib_dir, "libsysy.a")
-        local_libsysy = os.path.join(os.path.dirname(assembly_file), "libsysy.a")
+        local_libsysy = os.path.join(temp_dir, "libsysy.a")
+        
+        if not os.path.exists(libsysy_path):
+            if verbose:
+                logging.error(f"libsysy.a not found at {libsysy_path}")
+            return False, "libsysy.a not found"
+            
         if not os.path.exists(local_libsysy):
             shutil.copy2(libsysy_path, local_libsysy)
+            if verbose:
+                logging.info(f"Copied libsysy.a to {local_libsysy}")
 
         # Compile assembly to executable, linking with libsysy.a
-        compile_cmd = [arm_cc, "-static", assembly_file, "-L.", "-lsysy", "-o", output_exe]
+        compile_cmd = [arm_cc, "-static", assembly_file, "-L", temp_dir, "-lsysy", "-o", output_exe]
         if verbose:
             logging.info(f"Compiling with command: {' '.join(compile_cmd)}")
         
-        result = subprocess.run(compile_cmd, cwd=os.path.dirname(assembly_file), 
+        result = subprocess.run(compile_cmd, cwd=temp_dir, 
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode != 0:
             if verbose:
@@ -406,7 +415,7 @@ def run_arm_test(assembly_file, timeout, verbose=False):
         if verbose:
             logging.info(f"Running with command: {' '.join(run_cmd)}")
 
-        process = subprocess.Popen(run_cmd, cwd=os.path.dirname(assembly_file),
+        process = subprocess.Popen(run_cmd, cwd=temp_dir,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
         try:
@@ -453,19 +462,28 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
         if os.name == "nt":  # Windows
             output_exe += ".exe"
 
-        # Copy libsysy.a to current directory if it doesn't exist
-        lib_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(assembly_file))), "lib")
+        # Create a temporary directory for compilation
+        temp_dir = os.path.dirname(assembly_file)
+        lib_dir = os.path.join(PROJECT_ROOT, "lib")
         libsysy_path = os.path.join(lib_dir, "libsysy.a")
-        local_libsysy = os.path.join(os.path.dirname(assembly_file), "libsysy.a")
+        local_libsysy = os.path.join(temp_dir, "libsysy.a")
+        
+        if not os.path.exists(libsysy_path):
+            if verbose:
+                logging.error(f"libsysy.a not found at {libsysy_path}")
+            return False, "libsysy.a not found"
+            
         if not os.path.exists(local_libsysy):
             shutil.copy2(libsysy_path, local_libsysy)
+            if verbose:
+                logging.info(f"Copied libsysy.a to {local_libsysy}")
 
         # Compile assembly to executable, linking with libsysy.a
-        compile_cmd = [riscv_cc, "-static", assembly_file, "-L.", "-lsysy", "-o", output_exe]
+        compile_cmd = [riscv_cc, "-static", assembly_file, "-L", temp_dir, "-lsysy", "-o", output_exe]
         if verbose:
             logging.info(f"Compiling with command: {' '.join(compile_cmd)}")
         
-        result = subprocess.run(compile_cmd, cwd=os.path.dirname(assembly_file), 
+        result = subprocess.run(compile_cmd, cwd=temp_dir, 
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode != 0:
             if verbose:
@@ -477,7 +495,7 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
         if verbose:
             logging.info(f"Running with command: {' '.join(run_cmd)}")
 
-        process = subprocess.Popen(run_cmd, cwd=os.path.dirname(assembly_file),
+        process = subprocess.Popen(run_cmd, cwd=temp_dir,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
         try:
