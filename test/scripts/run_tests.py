@@ -60,8 +60,8 @@ DEFAULT_CONFIG = {
     "optimizations": ["O0", "O1", "O2"],
     "timeout": 30,
     "paths": {
-        "arm_cc": "arm-linux-gnueabihf-gcc" + EXE_EXT,
-        "riscv_cc": "riscv64-unknown-elf-gcc" + EXE_EXT,
+        "arm_cc": "arm-linux-gnueabihf-gcc",
+        "riscv_cc": "riscv64-unknown-elf-gcc",
         "qemu_arm": "qemu-arm" + EXE_EXT,
         "qemu_riscv": "qemu-riscv64" + EXE_EXT
     }
@@ -70,6 +70,9 @@ DEFAULT_CONFIG = {
 # Override with platform-specific defaults if needed
 if IS_MACOS:
     DEFAULT_CONFIG["paths"]["arm_cc"] = "arm-none-eabi-gcc"
+elif IS_WINDOWS:
+    DEFAULT_CONFIG["paths"]["arm_cc"] += ".exe"
+    DEFAULT_CONFIG["paths"]["riscv_cc"] += ".exe"
 
 # Load or create configuration
 def load_config():
@@ -86,6 +89,18 @@ def load_config():
                        (not IS_WINDOWS and '\\' in config["compiler_jar"]):
                         logging.warning(f"Detected mismatched path format in config. Updating compiler_jar path.")
                         config["compiler_jar"] = current_os_path
+                
+                # 修复ARM和RISC-V编译器路径中的.exe后缀
+                if IS_LINUX or IS_MACOS:
+                    for compiler_key in ["arm_cc", "riscv_cc"]:
+                        if compiler_key in config["paths"] and config["paths"][compiler_key].endswith(".exe"):
+                            config["paths"][compiler_key] = config["paths"][compiler_key][:-4]  # 去掉.exe
+                            logging.warning(f"Removed .exe suffix from {compiler_key} path")
+                elif IS_WINDOWS:
+                    for compiler_key in ["arm_cc", "riscv_cc"]:
+                        if compiler_key in config["paths"] and not config["paths"][compiler_key].endswith(".exe"):
+                            config["paths"][compiler_key] += ".exe"  # 添加.exe
+                            logging.warning(f"Added .exe suffix to {compiler_key} path")
         except Exception as e:
             logging.warning(f"Failed to load config file: {e}")
     
@@ -343,16 +358,19 @@ def run_arm_test(assembly_file, timeout, verbose=False):
 #include <stdio.h>
 #include <stdlib.h>
 
+/* 使用唯一名称避免与汇编中的main冲突 */
 extern int main();
 
-int main_wrapper() {
+/* 改为唯一的包装器名称 */
+int sysy_test_wrapper() {
     int result = main();
     printf("Exit code: %d\\n", result);
     return result;
 }
 
+/* 重命名main函数避免冲突 */
 int main() {
-    return main_wrapper();
+    return sysy_test_wrapper();
 }
 """)
     
@@ -363,8 +381,9 @@ int main() {
         temp_sylib_h = os.path.join(os.path.dirname(wrapper_c), "sylib.h")
         shutil.copyfile(str(SYLIB_H), temp_sylib_h)
         
-        # Compile with wrapper and link with libsysy.a
-        compile_cmd = [arm_cc, "-static", wrapper_c, assembly_file, str(LIBSYSY_A), "-o", output_exe, "-I", os.path.dirname(temp_sylib_h)]
+        # Compile with wrapper and link with libsysy.a - 使用-Wl,--allow-multiple-definition允许重复定义
+        compile_cmd = [arm_cc, "-static", wrapper_c, assembly_file, str(LIBSYSY_A), "-o", output_exe, 
+                      "-I", os.path.dirname(temp_sylib_h), "-Wl,--allow-multiple-definition"]
         if verbose:
             logging.info(f"Executing: {' '.join(compile_cmd)}")
         
@@ -432,16 +451,19 @@ def run_riscv_test(assembly_file, timeout, verbose=False):
 #include <stdio.h>
 #include <stdlib.h>
 
+/* 使用唯一名称避免与汇编中的main冲突 */
 extern int main();
 
-int main_wrapper() {
+/* 改为唯一的包装器名称 */
+int sysy_test_wrapper() {
     int result = main();
     printf("Exit code: %d\\n", result);
     return result;
 }
 
+/* 重命名main函数避免冲突 */
 int main() {
-    return main_wrapper();
+    return sysy_test_wrapper();
 }
 """)
     
@@ -452,8 +474,9 @@ int main() {
         temp_sylib_h = os.path.join(os.path.dirname(wrapper_c), "sylib.h")
         shutil.copyfile(str(SYLIB_H), temp_sylib_h)
         
-        # Compile with wrapper and link with libsysy.a
-        compile_cmd = [riscv_cc, "-static", wrapper_c, assembly_file, str(LIBSYSY_A), "-o", output_exe, "-I", os.path.dirname(temp_sylib_h)]
+        # Compile with wrapper and link with libsysy.a - 使用-Wl,--allow-multiple-definition允许重复定义
+        compile_cmd = [riscv_cc, "-static", wrapper_c, assembly_file, str(LIBSYSY_A), "-o", output_exe, 
+                      "-I", os.path.dirname(temp_sylib_h), "-Wl,--allow-multiple-definition"]
         if verbose:
             logging.info(f"Executing: {' '.join(compile_cmd)}")
         
@@ -626,11 +649,37 @@ def main():
         # 修改为当前系统上的实际路径
         actual_jar_path = str(PROJECT_ROOT / "target" / "compiler-1.0-SNAPSHOT-jar-with-dependencies.jar")
         if os.path.exists(actual_jar_path):
-            config["compiler_jar"] = actual_jar_path.replace('\\', '/')
+            if IS_WINDOWS:
+                config["compiler_jar"] = actual_jar_path.replace('/', '\\')
+            else:
+                config["compiler_jar"] = actual_jar_path.replace('\\', '/')
             print(f"Found compiler JAR at: {actual_jar_path}")
         else:
             print(f"Warning: Compiler JAR not found at: {actual_jar_path}")
             print("You need to build the compiler or manually update the path in config.json")
+        
+        # 确保编译器路径正确（添加或移除.exe）
+        if IS_LINUX or IS_MACOS:
+            for compiler_key in ["arm_cc", "riscv_cc"]:
+                if config["paths"][compiler_key].endswith(".exe"):
+                    config["paths"][compiler_key] = config["paths"][compiler_key][:-4]
+        elif IS_WINDOWS:
+            for compiler_key in ["arm_cc", "riscv_cc"]:
+                if not config["paths"][compiler_key].endswith(".exe"):
+                    config["paths"][compiler_key] += ".exe"
+        
+        # 检测适合当前系统的ARM编译器
+        if IS_LINUX:
+            arm_compilers = ["arm-linux-gnueabihf-gcc", "arm-linux-gnu-gcc", "arm-none-eabi-gcc"]
+            for compiler in arm_compilers:
+                if shutil.which(compiler):
+                    config["paths"]["arm_cc"] = compiler
+                    print(f"Found ARM compiler: {compiler}")
+                    break
+        elif IS_MACOS:
+            if shutil.which("arm-none-eabi-gcc"):
+                config["paths"]["arm_cc"] = "arm-none-eabi-gcc"
+                print("Found ARM compiler: arm-none-eabi-gcc")
         
         # Try to detect RISC-V toolchain
         print("Auto-detecting RISC-V toolchain...")
@@ -655,8 +704,14 @@ def main():
         
         if not riscv_gcc_found:
             print("Warning: RISC-V toolchain not found in PATH.")
-            print("You might need to install it with:")
-            print("  sudo apt-get install -y gcc-riscv64-unknown-elf")
+            if IS_LINUX:
+                print("You might need to install it with:")
+                print("  sudo apt-get install -y gcc-riscv64-unknown-elf")
+                print("  # 或者尝试: sudo apt-get install -y gcc-riscv64-linux-gnu")
+            elif IS_MACOS:
+                print("You might need to install it with:")
+                print("  brew tap riscv/riscv")
+                print("  brew install riscv-gnu-toolchain")
             print("Or update config.json manually with the correct path.")
         
         with open(CONFIG_FILE, 'w') as f:
